@@ -69,7 +69,15 @@ PR 協作以 `.ai-collab/kit/REVIEW_PROTOCOL.md` 為準；專案設定在 `.ai-c
 - 審查者每一輪都依 `REVIEWER_BOOTSTRAP.md` 從 GitHub 重建狀態，不依賴 session 記憶。
 - 開 PR 前檢查仍開著的 PR 是否與本次變更重疊。（`REVIEW_PROTOCOL.md` §3、§8）
 
-## 8. 必須讀守則全文的情境
+## 8. Loop Guard（審查輪數上限）
+
+- 一輪 = 一個新的 Ready-SHA 收到審查者一次正式的 `Review-Status:`。同一個 SHA 不重複審查，也不增加輪數；任何動作都不重置計數。
+- 第一輪之後只審 `Last-Reviewed-SHA..Ready-SHA`，加上仍未結案的發現。審查者每輪總結都要附 `Open-Findings:`。
+- 最多 `project.yaml` 的 `loop_guard.max_review_rounds` 輪（預設 3）。之後的新 Ready-SHA 一律 `HUMAN_GATE_REQUIRED`；同一個發現在 2 個不同 Ready-SHA 上都未結案時也是。輪數用完不等於通過。
+- 喚醒審查者前，用 `.ai-collab/kit/scripts/verify.sh review-state` 判定；結果不是 `REVIEW` 就不審。
+- **AI 不得修改、停用、繞過、重置或延長 Loop Guard**，包括修改限制值、自行多跑一輪、自行批准例外、用留言重置計數。例外只能由人以 `Human-Decision: ALLOW_EXTRA_ROUND` 給予，每次只多 1 輪；AI 不得代寫這行。共用 GitHub 身分時這行無法驗證，控制方式是人手動喚醒審查者。（`REVIEW_PROTOCOL.md` §9）
+
+## 9. 必須讀守則全文的情境
 
 - Gate 或需另行授權的動作（§2、§3）
 - 任何部署，含 staging（§8，以及 `project.yaml` 的環境說明）

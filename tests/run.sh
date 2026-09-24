@@ -98,7 +98,71 @@ expect_failure "unknown validated commit is rejected" "unknown commit" "$KIT/scr
 # 6. The kit refuses to install into itself.
 expect_failure "install into the kit itself is refused" "refusing to install the kit into itself" "$KIT/scripts/install.sh" "$KIT"
 
-# 7. Workflow files must parse; an invalid workflow silently produces no CI run at all.
+# 7. Loop Guard (REVIEW_PROTOCOL §9): review-state decides from the state it is given.
+# expect_state <name> <exit code> <line;line...> -- <review-state arguments>
+expect_state() { local name="$1" want_code="$2" want="$3" code w missing=""; shift 4
+  "$KIT/scripts/verify.sh" review-state --root "$p" "$@" >"$WORK/out" 2>&1; code=$?
+  local IFS=';'
+  for w in $want; do grep -qxF -- "$w" "$WORK/out" || missing="$missing [$w]"; done
+  if [ "$code" = "$want_code" ] && [ -z "$missing" ]; then ok "$name"
+  else bad "$name (exit $code, want $want_code;${missing:+ missing$missing})"; sed 's/^/       /' "$WORK/out"; fi; }
+s1="$(printf '%040d' 1)" s2="$(printf '%040d' 2)" s3="$(printf '%040d' 3)" s4="$(printf '%040d' 4)" s5="$(printf '%040d' 5)"
+expect_state "round 1: a new Ready-SHA is reviewed in full" 0 "decision=REVIEW;review_round=1;scope=full" -- --ready "$s1"
+expect_state "Ready-SHA equal to the last Reviewed-SHA is NO_ACTION" 10 "decision=NO_ACTION;reason=already_reviewed" -- \
+  --ready "$s2" --reviewed "$s1" --reviewed "$s2"
+expect_state "an earlier Reviewed-SHA offered again is NO_ACTION" 10 "decision=NO_ACTION" -- \
+  --ready "$s1" --reviewed "$s1" --reviewed "$s2"
+expect_state "round 3 with a new Ready-SHA is still reviewed" 0 "decision=REVIEW;review_round=3;scope=$s2..$s3" -- \
+  --ready "$s3" --reviewed "$s1" --reviewed "$s2"
+expect_state "a new Ready-SHA after round 3 needs the Human" 20 "decision=HUMAN_GATE_REQUIRED;reason=max_review_rounds;rounds=3" -- \
+  --ready "$s4" --reviewed "$s1" --reviewed "$s2" --reviewed "$s3"
+expect_state "a repeated Reviewed-SHA does not add a round" 0 "decision=REVIEW;rounds=2;review_round=3" -- \
+  --ready "$s3" --reviewed "$s1" --reviewed "$s1" --reviewed "$s2" --reviewed "$s2"
+expect_state "a finding open at two Ready-SHAs needs the Human" 20 \
+  "decision=HUMAN_GATE_REQUIRED;reason=repeated_unresolved_finding;disputed_findings=R1-02" -- \
+  --ready "$s3" --reviewed "$s1:R1-01,R1-02" --reviewed "$s2:R1-02"
+expect_state "different open findings per SHA are not a dispute" 0 "decision=REVIEW;carry_findings=R2-01" -- \
+  --ready "$s3" --reviewed "$s1:R1-01" --reviewed "$s2:R2-01"
+expect_state "a finding listed twice at one SHA is not a dispute" 0 "decision=REVIEW" -- \
+  --ready "$s2" --reviewed "$s1:R1-01,R1-01"
+expect_state "ALLOW_EXTRA_ROUND permits one more round" 0 "decision=REVIEW;review_round=4;limit=4" -- \
+  --ready "$s4" --reviewed "$s1" --reviewed "$s2" --reviewed "$s3" --human-extra-rounds 1
+expect_state "ALLOW_EXTRA_ROUND permits only one more round" 20 "decision=HUMAN_GATE_REQUIRED;reason=max_review_rounds" -- \
+  --ready "$s5" --reviewed "$s1" --reviewed "$s2" --reviewed "$s3" --reviewed "$s4" --human-extra-rounds 1
+expect_state "ALLOW_EXTRA_ROUND after a dispute permits one more round" 0 "decision=REVIEW;review_round=3" -- \
+  --ready "$s3" --reviewed "$s1:R1-02" --reviewed "$s2:R1-02" --human-extra-rounds 1
+expect_state "the gate returns after the extra round" 20 "decision=HUMAN_GATE_REQUIRED;reason=repeated_unresolved_finding" -- \
+  --ready "$s4" --reviewed "$s1:R1-02" --reviewed "$s2:R1-02" --reviewed "$s3" --human-extra-rounds 1
+expect_state "missing --ready is invalid input" 2 "review-state requires --ready <40-character sha>" --
+expect_state "short Ready-SHA is invalid input" 2 "invalid --ready sha: abc123" -- --ready abc123
+expect_state "malformed Reviewed-SHA is invalid input" 2 "invalid --reviewed sha: XYZ" -- --ready "$s1" --reviewed XYZ
+expect_state "malformed finding IDs are invalid input" 2 "invalid finding IDs in --reviewed: $s1:R1,,R2" -- \
+  --ready "$s2" --reviewed "$s1:R1,,R2"
+expect_state "option without a value is invalid input" 2 "missing value for --ready" -- --ready
+expect_state "negative extra rounds are invalid input" 2 "invalid --human-extra-rounds: -1" -- --ready "$s1" --human-extra-rounds -1
+expect_state "the round limit cannot be passed on the command line" 2 "unknown argument: --max-rounds" -- \
+  --ready "$s4" --reviewed "$s1" --reviewed "$s2" --reviewed "$s3" --max-rounds 9
+expect_failure "review-state options are rejected outside review-state" "need review-state mode" "$KIT/scripts/verify.sh" --root "$p" --ready "$s1"
+cp -r "$p" "$WORK/lg1"
+sed -i.bak 's/max_review_rounds: 3/max_review_rounds: many/' "$WORK/lg1/.ai-collab/project.yaml" && rm -f "$WORK/lg1/.ai-collab/project.yaml.bak"
+expect_failure "invalid max_review_rounds fails verify" "loop_guard.max_review_rounds must be set once" verify "$WORK/lg1"
+expect_failure "review-state refuses an invalid limit" "loop_guard.max_review_rounds must be set once" \
+  "$KIT/scripts/verify.sh" review-state --root "$WORK/lg1" --ready "$s1"
+cp -r "$p" "$WORK/lg4"
+sed -i.bak 's/^  max_review_rounds: 3.*/&\
+  max_review_rounds: 9/' "$WORK/lg4/.ai-collab/project.yaml" && rm -f "$WORK/lg4/.ai-collab/project.yaml.bak"
+expect_failure "a second max_review_rounds cannot raise the limit" "loop_guard.max_review_rounds must be set once" \
+  "$KIT/scripts/verify.sh" review-state --root "$WORK/lg4" --ready "$s1"
+cp -r "$p" "$WORK/lg2"
+sed -i.bak 's/require_new_sha_for_rereview: true/require_new_sha_for_rereview: false/' "$WORK/lg2/.ai-collab/project.yaml" && rm -f "$WORK/lg2/.ai-collab/project.yaml.bak"
+expect_failure "require_new_sha_for_rereview cannot be turned off" "require_new_sha_for_rereview must be set once, to true" verify "$WORK/lg2"
+cp -r "$p" "$WORK/lg3"
+sed -i.bak '/^loop_guard:/,$d' "$WORK/lg3/.ai-collab/project.yaml" && rm -f "$WORK/lg3/.ai-collab/project.yaml.bak"
+expect_failure "a profile without loop_guard fails verify" "missing top-level key 'loop_guard'" verify "$WORK/lg3"
+expect_failure "review-state refuses a profile without loop_guard" "missing top-level key 'loop_guard'" \
+  "$KIT/scripts/verify.sh" review-state --root "$WORK/lg3" --ready "$s1"
+
+# 8. Workflow files must parse; an invalid workflow silently produces no CI run at all.
 if command -v python3 >/dev/null 2>&1 && python3 -c 'import yaml' 2>/dev/null; then
   for wf in "$KIT"/.github/workflows/*.yml; do
     expect_success "workflow parses: ${wf##*/}" python3 -c 'import sys, yaml; yaml.safe_load(open(sys.argv[1]))' "$wf"

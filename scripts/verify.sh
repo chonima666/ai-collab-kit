@@ -1,25 +1,163 @@
 #!/usr/bin/env bash
-# Verify an installed ai-collab-kit, or classify changes after a validated commit.
+# Verify an installed ai-collab-kit, classify changes after a validated commit, or apply the
+# Loop Guard to a review state.
 #   .ai-collab/kit/scripts/verify.sh [--root <project-root>]
 #   .ai-collab/kit/scripts/verify.sh pr --validated <sha> [--head <ref>] [--root <project-root>]
+#   .ai-collab/kit/scripts/verify.sh review-state --ready <sha> [--reviewed <sha>[:<id>,...]]...
+#       [--human-extra-rounds <n>] [--root <project-root>]
+# review-state never contacts GitHub: the caller passes the state it has already read.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib.sh
 . "$HERE/lib.sh"
 
-mode=check validated="" head=HEAD ROOT=""
-[ "${1:-}" = pr ] && { mode=pr; shift; }
+usage_error() { echo "$*" >&2; exit 2; }
+
+mode=check validated="" head="" ROOT="" ready="" reviewed="" extra=""
+case "${1:-}" in
+  pr) mode=pr; shift ;;
+  review-state) mode=review; shift ;;
+esac
 while [ $# -gt 0 ]; do
+  [ $# -ge 2 ] || usage_error "missing value for $1"
   case "$1" in
-    --validated) validated="$2"; shift 2 ;;
-    --head) head="$2"; shift 2 ;;
-    --root) ROOT="$2"; shift 2 ;;
-    *) echo "unknown argument: $1" >&2; exit 2 ;;
+    --validated) validated="$2" ;;
+    --head) head="$2" ;;
+    --root) ROOT="$2" ;;
+    --ready) [ -z "$ready" ] || usage_error "--ready given more than once"; ready="$2" ;;
+    --reviewed) reviewed="$reviewed$2
+" ;;
+    --human-extra-rounds) [ -z "$extra" ] || usage_error "--human-extra-rounds given more than once"; extra="$2" ;;
+    *) usage_error "unknown argument: $1" ;;
   esac
+  shift 2
 done
+if [ "$mode" = review ]; then
+  [ -z "$validated$head" ] || usage_error "--validated and --head are not review-state options"
+else
+  [ -z "$ready$reviewed$extra" ] || usage_error "--ready, --reviewed and --human-extra-rounds need review-state mode"
+fi
+[ -n "$head" ] || head=HEAD
 [ -n "$ROOT" ] || ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-ROOT="$(cd "$ROOT" && pwd)"
+ROOT="$(cd "$ROOT" && pwd)" || exit 2
+
+# Print "max_review_rounds=<n>" and "require_new_sha_for_rereview=<v>" from the loop_guard block
+# of project.yaml $1, or print a reason and return 1. The limit comes only from this file, which
+# the project changes through a reviewed PR; no command-line option can raise it (LG-06a).
+loop_guard_config() {
+  local entries max new_sha
+  grep -qE '^loop_guard:[[:space:]]*(#.*)?$' "$1" || { echo "project.yaml: missing top-level key 'loop_guard'"; return 1; }
+  entries="$(awk '
+    /^[^[:space:]#]/ { inside = ($0 ~ /^loop_guard:[[:space:]]*(#.*)?$/); next }
+    inside {
+      line = $0; sub(/#.*/, "", line)
+      if (line ~ /^[[:space:]]+[a-z_]+:/) {
+        key = line; sub(/^[[:space:]]+/, "", key); sub(/:.*/, "", key)
+        val = line; sub(/^[^:]*:[[:space:]]*/, "", val); sub(/[[:space:]]+$/, "", val)
+        print key "=" val
+      }
+    }' "$1")"
+  max="$(printf '%s\n' "$entries" | grep '^max_review_rounds=' || true)"
+  new_sha="$(printf '%s\n' "$entries" | grep '^require_new_sha_for_rereview=' || true)"
+  { [ "$(printf '%s\n' "$max" | grep -c .)" -eq 1 ] && printf '%s\n' "$max" | grep -qxE 'max_review_rounds=[1-9][0-9]{0,2}'; } \
+    || { echo "project.yaml: loop_guard.max_review_rounds must be set once, as an integer from 1 to 999"; return 1; }
+  # v0.1.1 supports only true; re-reviewing an already reviewed SHA is not a mode it offers.
+  [ "$new_sha" = "require_new_sha_for_rereview=true" ] \
+    || { echo "project.yaml: loop_guard.require_new_sha_for_rereview must be set once, to true"; return 1; }
+  printf '%s\n%s\n' "$max" "$new_sha"
+}
+
+if [ "$mode" = review ]; then
+  sha_re='^[0-9a-f]{40}$'
+  [ -n "$ready" ] || usage_error "review-state requires --ready <40-character sha>"
+  printf '%s\n' "$ready" | grep -qE "$sha_re" || usage_error "invalid --ready sha: $ready"
+  [ -n "$extra" ] || extra=0
+  printf '%s\n' "$extra" | grep -qE '^[0-9]{1,3}$' || usage_error "invalid --human-extra-rounds: $extra"
+  extra=$((10#$extra))
+  # Each --reviewed record is one Reviewed-SHA that carries a Review-Status, in the order posted,
+  # with the finding IDs the reviewer still left open at that SHA.
+  records=""
+  while IFS= read -r rec; do
+    [ -n "$rec" ] || continue
+    sha="${rec%%:*}" ids=""
+    [ "$sha" = "$rec" ] || ids="${rec#*:}"
+    printf '%s\n' "$sha" | grep -qE "$sha_re" || usage_error "invalid --reviewed sha: $rec"
+    if [ -n "$ids" ]; then
+      printf '%s\n' "$ids" | grep -qE '^[A-Za-z0-9][A-Za-z0-9._-]*(,[A-Za-z0-9][A-Za-z0-9._-]*)*$' \
+        || usage_error "invalid finding IDs in --reviewed: $rec"
+    fi
+    records="$records$sha	$ids
+"
+  done <<EOF_REVIEWED
+$reviewed
+EOF_REVIEWED
+  profile="$ROOT/.ai-collab/project.yaml"
+  [ -f "$profile" ] || usage_error "$profile missing; the Loop Guard limit is read only from project.yaml"
+  config="$(loop_guard_config "$profile")" || usage_error "$config"
+  max="$(printf '%s\n' "$config" | sed -n 's/^max_review_rounds=//p')"
+
+  # A round is a distinct Reviewed-SHA: repeating a SHA never adds a round, and its latest record
+  # holds its open findings. A finding open at two distinct SHAs is a repeated unresolved dispute;
+  # the round in which that first happens caps the rounds like max_review_rounds does.
+  state="$(printf '%s' "$records" | awk -F'\t' -v ready="$ready" '
+    !($1 in ord) { ord[$1] = ++n; sha[n] = $1 }
+    { open[$1] = $2 }
+    END {
+      seen = 0; first = 0; disputed = ""
+      for (i = 1; i <= n; i++) {
+        if (sha[i] == ready) seen = 1
+        k = split(open[sha[i]], ids, ",")
+        for (j = 1; j <= k; j++) {
+          if ((i, ids[j]) in listed) continue
+          listed[i, ids[j]] = 1
+          if (++count[ids[j]] == 2) {
+            if (!first) first = i
+            disputed = disputed (disputed == "" ? "" : ",") ids[j]
+          }
+        }
+      }
+      print "rounds=" n + 0
+      print "last=" (n ? sha[n] : "none")
+      print "carry=" (n ? open[sha[n]] : "")
+      print "seen=" seen
+      print "dispute_round=" first
+      print "disputed=" disputed
+    }')"
+  get() { printf '%s\n' "$state" | sed -n "s/^$1=//p"; }
+  rounds="$(get rounds)" last="$(get last)" carry="$(get carry)"
+  dispute_round="$(get dispute_round)" disputed="$(get disputed)"
+  base="$max"
+  [ "$dispute_round" -gt 0 ] && [ "$dispute_round" -lt "$base" ] && base="$dispute_round"
+  limit=$((base + extra))
+
+  if [ "$(get seen)" = 1 ]; then
+    decision=NO_ACTION reason=already_reviewed code=10
+  elif [ "$rounds" -ge "$limit" ]; then
+    decision=HUMAN_GATE_REQUIRED code=20 reason=""
+    if [ "$dispute_round" -gt 0 ] && [ "$rounds" -ge $((dispute_round + extra)) ]; then
+      reason=repeated_unresolved_finding
+    fi
+    if [ "$rounds" -ge $((max + extra)) ]; then
+      reason="${reason:+$reason,}max_review_rounds"
+    fi
+  else
+    decision=REVIEW reason=new_ready_sha code=0
+  fi
+  echo "decision=$decision"
+  echo "reason=$reason"
+  echo "rounds=$rounds"
+  echo "limit=$limit"
+  echo "ready=$ready"
+  echo "last_reviewed=$last"
+  if [ "$decision" = REVIEW ]; then
+    echo "review_round=$((rounds + 1))"
+    if [ "$last" = none ]; then echo "scope=full"; else echo "scope=$last..$ready"; fi
+    echo "carry_findings=$carry"
+  fi
+  [ "$decision" = HUMAN_GATE_REQUIRED ] && [ -n "$disputed" ] && echo "disputed_findings=$disputed"
+  exit "$code"
+fi
 
 # Path classification is deliberately conservative: anything not recognised as docs, tests or
 # config counts as code, so a mislabelled change is reported as code rather than hidden.
@@ -85,6 +223,9 @@ else
   for key in "${AICK_PROFILE_KEYS[@]}"; do
     grep -qE "^$key:" "$profile" || problem "project.yaml: missing top-level key '$key'"
   done
+  if grep -qE '^loop_guard:' "$profile" && ! lg="$(loop_guard_config "$profile")"; then
+    problem "$lg"
+  fi
   # Ignore comments so documentation about placeholders is not itself a placeholder.
   if sed 's/#.*//' "$profile" | grep -qE 'REPLACE_[A-Z][A-Z_]*'; then
     problem "project.yaml: REPLACE_ placeholders remain"
