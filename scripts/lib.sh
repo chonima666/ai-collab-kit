@@ -19,7 +19,7 @@ AICK_MANAGED_FILES=(
 )
 # Top-level keys every project.yaml must define.
 AICK_PROFILE_KEYS=(project owner roles tracking stricter_rules commands lint_baseline
-  environments release emergency_fix restore_drill review)
+  environments release emergency_fix restore_drill review loop_guard)
 AICK_PR_FIELDS=("Current HEAD:" "Code under review:" "Validated commit:" "Deployed commit:")
 
 aick_sha256() {

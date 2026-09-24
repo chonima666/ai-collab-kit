@@ -126,9 +126,10 @@ AI 在 GitHub 上寫的每一則 PR 說明、留言與 review，第一行都必�
 
 | 用途 | 誰寫 | 必要欄位 |
 | --- | --- | --- |
-| 審查發現與每輪總結 | 審查者 | `Reviewed-SHA: <40 字元 commit>`；總結另加 `Review-Status: CHANGES_REQUESTED` 或 `VERIFIED` |
+| 審查發現與每輪總結 | 審查者 | `Reviewed-SHA: <40 字元 commit>`；總結另加 `Review-Status: CHANGES_REQUESTED` 或 `VERIFIED`，以及 `Open-Findings: <編號, ...>`（沒有則填 `none`，§9.2） |
 | 請求審查或複查 | 建構者 | `AI-Review: READY` 與 `Ready-SHA: <40 字元 commit>` |
 | 回應某項發現 | 建構者 | 發現編號，修正時加 `Fixed-In: <commit>` |
+| Loop Guard 例外 | 人 | `Human-Decision: ALLOW_EXTRA_ROUND` 與 `Reason: <理由>`（§9.4） |
 
 沒有角色標頭的留言視為人所寫。AI 不得省略標頭，也不得冒用另一個角色的標頭。
 
@@ -139,5 +140,89 @@ AI 在 GitHub 上寫的每一則 PR 說明、留言與 review，第一行都必�
 - 觸發事件：PR opened、synchronize（新 commit）、review requested、reopened，以及建構者的 `AI-Review: READY`。
 - 不因任意留言觸發；帶 `[AI-Reviewer:` 標頭的留言一律不觸發審查者。
 - Current HEAD 等於最近一次的 `Reviewed-SHA` 時，不做完整的程式審查。
+- 每次喚醒前先套用 Loop Guard（§9）；啟用自動喚醒的前提見 §9.5。
 - 自動化失效時，依 `REVIEWER_BOOTSTRAP.md` §8 由人工啟動；流程不得依賴自動化才能運作。
 
+## 9. Loop Guard（審查輪數控制）
+
+Loop Guard 限制建構者與審查者之間的來回次數，避免 AI 之間無限迭代。它不評估程式品質：輪數用完**永遠不等於通過**，
+只代表必須交給人決定。
+
+### 9.1 名詞
+
+- **有效審查輪（round）**：一個**新的** Ready-SHA 收到審查者一次正式的 `Review-Status:` 判定。
+  同一個 SHA 再審一次、重貼留言、測試留言，都不增加輪數。新的 session、對話或 commit 也不會重置計數。
+- **未結案發現**：審查者在某一輪總結的 `Open-Findings:` 中列出的發現編號。
+
+### 9.2 規則
+
+| 編號 | 規則 |
+| --- | --- |
+| LG-01 | 沒有新的 Ready-SHA，就不複查。 |
+| LG-02 | Ready-SHA 已經審查過（等於最近一次或更早的 `Reviewed-SHA`）時，結果是 `NO_ACTION`。 |
+| LG-03 | 第一輪審查完整範圍；之後只審 `Last-Reviewed-SHA..Ready-SHA`，加上仍未結案的發現。§4 要求擴大範圍的情況照舊適用。 |
+| LG-04 | 預設最多 3 輪（`project.yaml` 的 `loop_guard.max_review_rounds`）。第 1 到 3 輪都允許完成；第 3 輪結束後，下一個新的 Ready-SHA 一律是 `HUMAN_GATE_REQUIRED`，不論上一輪是否為 `VERIFIED`。 |
+| LG-05 | 同一個發現編號在 2 個不同的 Ready-SHA 上都未結案時，下一個新的 Ready-SHA 是 `HUMAN_GATE_REQUIRED`（reason=`repeated_unresolved_finding`）。只看審查結果，不看建構者是否宣稱已修正，也不論第二個 SHA 有沒有碰到相關程式。 |
+| LG-06a | AI 不得修改、停用、繞過、重置或延長 Loop Guard 的限制。例如：自行修改 `project.yaml` 的限制值、宣稱「這次特殊」多跑一輪、自行批准額外輪次、用另一則留言重置計數。 |
+| LG-06b | 自動化模式下，只有**可驗證**的 Human 授權能給予例外（§9.5）。 |
+
+為了讓 LG-05 可以從 GitHub 重建，審查者每一輪的總結都必須帶 `Open-Findings:`（§8.2）。
+
+### 9.3 判定工具
+
+`verify.sh review-state` 依上面的規則，對呼叫者提供的狀態做判定。它**不連網、不讀 GitHub**；從 PR 取得狀態是呼叫者
+（人、審查者，或未來的 orchestrator）的責任。
+
+```bash
+.ai-collab/kit/scripts/verify.sh review-state \
+  --ready <Ready-SHA> \
+  --reviewed <Reviewed-SHA>[:<未結案編號>,...]   # 每一則帶 Review-Status 的審查總結一筆，依時間順序，可重複
+  [--human-extra-rounds <n>]                     # 已記錄的 ALLOW_EXTRA_ROUND 次數
+```
+
+- 輪數上限只從 `project.yaml` 讀取，沒有任何命令列參數可以改變它。
+- SHA 必須是 40 字元的小寫十六進位。同一個 SHA 出現多次時，只算一輪，以最後一筆的未結案清單為準。
+- 輸出為 `key=value` 行，第一行是 `decision=`，只會是下列三種之一：
+
+| decision | exit code | 意義 |
+| --- | --- | --- |
+| `REVIEW` | 0 | 進行一輪審查；`scope=` 是審查範圍，`carry_findings=` 是需要一併複查的未結案發現 |
+| `NO_ACTION` | 10 | Ready-SHA 已審查過，不審查 |
+| `HUMAN_GATE_REQUIRED` | 20 | 停止 AI 迭代，交給人決定；`reason=` 只會是單一值 `max_review_rounds` 或 `repeated_unresolved_finding`，兩者同時成立時輸出 `repeated_unresolved_finding`；爭議時另有 `disputed_findings=` |
+| （無） | 2 | 輸入不合法或設定錯誤，訊息在 stderr |
+
+### 9.4 Human 例外
+
+到達 `HUMAN_GATE_REQUIRED` 時，由人決定下一步，常見選項：
+
+- `ALLOW_EXTRA_ROUND`：再審一輪
+- `ACCEPT_RISK`：接受剩下的風險，由人決定是否合併
+- `REQUIRE_FIX`：要求建構者修正後由人決定是否繼續
+- `STOP`：停止這個 PR
+
+`ALLOW_EXTRA_ROUND` 在 PR 上以下列格式記錄，沒有角色標頭：
+
+```text
+Human-Decision: ALLOW_EXTRA_ROUND
+Reason: <理由>
+```
+
+每一次 `ALLOW_EXTRA_ROUND` 只多給 **1 輪**：不重置計數，不重新給 3 輪，不永久提高上限，也不修改 `project.yaml`。
+實際上限是「`max_review_rounds` 與第一次發生爭議的輪次，取較小者」加上 `ALLOW_EXTRA_ROUND` 的次數。
+所以在第一次觸發 Gate 之後，每多審一輪都需要一次新的授權。
+
+**共用身分模式的限制**：三方共用同一個 GitHub 身分時（§8.1），`Human-Decision:` 留言只是聲明式紀錄，
+無法由 GitHub 身分驗證作者是人，AI 也能寫出一模一樣的留言。因此在這個模式下：
+
+- 真正的控制是**人手動決定並手動喚醒審查者**，不是 AI 解析這則留言後自行取得額外輪次。
+- AI 不得自行寫出 `Human-Decision:` 留言，也不得替人轉貼。轉錄人的決定時，必須放在 AI 自己的角色標頭之下，並註明是轉錄。
+
+### 9.5 自動喚醒的前提（v0.2）
+
+自動喚醒（§8.3）啟用前，下列兩項都必須先完成：
+
+1. Loop Guard 由 orchestrator 強制執行：每次喚醒前都經過 §9.3 的判定，`HUMAN_GATE_REQUIRED` 時不喚醒。
+2. Human 的身分可以和建構者、審查者區分，至少做到下列其中一項：人使用個人 GitHub 身分，且建構者與審查者改用專用
+   GitHub App 或 bot；或有可驗證的外部 Human 授權管道。
+
+未滿足前，只能由人手動喚醒審查者。
