@@ -98,5 +98,14 @@ expect_failure "unknown validated commit is rejected" "unknown commit" "$KIT/scr
 # 6. The kit refuses to install into itself.
 expect_failure "install into the kit itself is refused" "refusing to install the kit into itself" "$KIT/scripts/install.sh" "$KIT"
 
+# 7. Workflow files must parse; an invalid workflow silently produces no CI run at all.
+if command -v python3 >/dev/null 2>&1 && python3 -c 'import yaml' 2>/dev/null; then
+  for wf in "$KIT"/.github/workflows/*.yml; do
+    expect_success "workflow parses: ${wf##*/}" python3 -c 'import sys, yaml; yaml.safe_load(open(sys.argv[1]))' "$wf"
+  done
+else
+  echo "skip - workflow YAML check (python3 with PyYAML not available; NOT verified)"
+fi
+
 echo "passed=$passed failed=$failed"
 [ "$failed" -eq 0 ]

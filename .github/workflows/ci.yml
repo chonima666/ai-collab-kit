@@ -18,7 +18,8 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Record tested commit
-        run: echo "Tested commit: $(git rev-parse HEAD)"
+        run: |
+          echo "Tested commit: $(git rev-parse HEAD)"
       - name: End-to-end tests
         # On macOS put the system Bash 3.2 first so compatibility is actually exercised.
         run: |
