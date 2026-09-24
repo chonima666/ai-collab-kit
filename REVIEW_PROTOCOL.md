@@ -188,7 +188,7 @@ Loop Guard 限制建構者與審查者之間的來回次數，避免 AI 之間�
 | --- | --- | --- |
 | `REVIEW` | 0 | 進行一輪審查；`scope=` 是審查範圍，`carry_findings=` 是需要一併複查的未結案發現 |
 | `NO_ACTION` | 10 | Ready-SHA 已審查過，不審查 |
-| `HUMAN_GATE_REQUIRED` | 20 | 停止 AI 迭代，交給人決定；`reason=` 是 `max_review_rounds` 或 `repeated_unresolved_finding`，爭議時另有 `disputed_findings=` |
+| `HUMAN_GATE_REQUIRED` | 20 | 停止 AI 迭代，交給人決定；`reason=` 只會是單一值 `max_review_rounds` 或 `repeated_unresolved_finding`，兩者同時成立時輸出 `repeated_unresolved_finding`；爭議時另有 `disputed_findings=` |
 | （無） | 2 | 輸入不合法或設定錯誤，訊息在 stderr |
 
 ### 9.4 Human 例外

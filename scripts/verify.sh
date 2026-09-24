@@ -134,12 +134,11 @@ EOF_REVIEWED
   if [ "$(get seen)" = 1 ]; then
     decision=NO_ACTION reason=already_reviewed code=10
   elif [ "$rounds" -ge "$limit" ]; then
-    decision=HUMAN_GATE_REQUIRED code=20 reason=""
+    # reason is a single value. When both limits bind, the dispute wins: it names the findings the
+    # Human has to decide on, and rounds/limit still show that the round limit is reached.
+    decision=HUMAN_GATE_REQUIRED code=20 reason=max_review_rounds
     if [ "$dispute_round" -gt 0 ] && [ "$rounds" -ge $((dispute_round + extra)) ]; then
       reason=repeated_unresolved_finding
-    fi
-    if [ "$rounds" -ge $((max + extra)) ]; then
-      reason="${reason:+$reason,}max_review_rounds"
     fi
   else
     decision=REVIEW reason=new_ready_sha code=0

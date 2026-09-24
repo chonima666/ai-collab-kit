@@ -133,6 +133,9 @@ expect_state "ALLOW_EXTRA_ROUND after a dispute permits one more round" 0 "decis
   --ready "$s3" --reviewed "$s1:R1-02" --reviewed "$s2:R1-02" --human-extra-rounds 1
 expect_state "the gate returns after the extra round" 20 "decision=HUMAN_GATE_REQUIRED;reason=repeated_unresolved_finding" -- \
   --ready "$s4" --reviewed "$s1:R1-02" --reviewed "$s2:R1-02" --reviewed "$s3" --human-extra-rounds 1
+expect_state "when both limits bind, reason is the single value repeated_unresolved_finding" 20 \
+  "decision=HUMAN_GATE_REQUIRED;reason=repeated_unresolved_finding;disputed_findings=R1-02;rounds=4" -- \
+  --ready "$s5" --reviewed "$s1:R1-02" --reviewed "$s2:R1-02" --reviewed "$s3" --reviewed "$s4" --human-extra-rounds 1
 expect_state "missing --ready is invalid input" 2 "review-state requires --ready <40-character sha>" --
 expect_state "short Ready-SHA is invalid input" 2 "invalid --ready sha: abc123" -- --ready abc123
 expect_state "malformed Reviewed-SHA is invalid input" 2 "invalid --reviewed sha: XYZ" -- --ready "$s1" --reviewed XYZ
