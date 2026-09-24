@@ -1,0 +1,54 @@
+# ai-collab-kit project profile. Owned by the project: install.sh never overwrites this file.
+# Fill every value that starts with REPLACE. verify.sh fails while any top-level key below is
+# missing or any placeholder value remains (comments are ignored).
+
+project: REPLACE_PROJECT_NAME
+
+# 專案負責人：委託人、Gate 決策人、最終合併者（守則 §2、§3、§9）。
+owner: REPLACE_OWNER
+
+roles:
+  builder: REPLACE_BUILDER          # 例如 Claude Code
+  reviewer: REPLACE_REVIEWER        # 例如另一個 AI；只讀權限
+  builder_branch_prefix: REPLACE_PREFIX
+
+tracking:
+  project_map: PROJECT_MAP.md
+  decision_log: REPLACE_DECISION_LOG_PATH
+  handoff_dir: .ai/handoffs/
+
+# 比守則更嚴格的專案規則文件（沒有就留空清單）。
+stricter_rules: []
+
+# 必跑檢查；跑不到的項目記為「未驗證」，不得冒稱通過。
+commands:
+  test: REPLACE_TEST_COMMAND
+  lint: REPLACE_LINT_COMMAND
+  other: []
+
+# 靜態檢查基準（守則 §6 第 6 條）。
+lint_baseline: >-
+  不維護永久 baseline；每次修改前後以相同範圍與設定執行並比對，結果記錄於 commit、PR 或工作回報。
+  修改前無法取得基準時標「無基準，無法判定新舊」，不得推定為既有問題。
+
+environments:
+  staging: REPLACE_STAGING_DESCRIPTION_OR_NONE
+  production: REPLACE_PRODUCTION_DESCRIPTION_OR_NONE
+  # 會產生費用或改變共享狀態的環境操作需要 owner 授權。
+
+release:
+  checklist: REPLACE_CHECKLIST_PATH_OR_NONE
+  evidence_storage: REPLACE_EVIDENCE_LOCATION_OR_NONE
+
+# 守則 §8。
+emergency_fix:
+  authority: owner
+  backfill_deadline: 事故穩定後的下一個工作天結束前；無法補齊時記錄原因與剩餘待辦
+
+restore_drill:
+  validity_days: 90
+  rule: 演練必須對應實際依賴的環境與備份機制；不同環境的演練不得互相替代；逾期或從未演練時升級為 Gate
+
+review:
+  require_validated_sha: true
+  require_evidence: true
