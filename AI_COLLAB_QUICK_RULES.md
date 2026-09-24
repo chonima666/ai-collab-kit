@@ -65,7 +65,9 @@ PR 協作以 `.ai-collab/kit/REVIEW_PROTOCOL.md` 為準；專案設定在 `.ai-c
 - PR 說明依範本填寫四種 SHA：Current HEAD、Code under review、Validated commit、Deployed commit。
 - 審查狀態以 GitHub 的 review／留言為準，人的決定以合併或明確留言為準；PR 說明只能引用，不能自行宣告。
 - 審查發現須附檔案、commit、重現或推理路徑、影響，並標「已證實」或「推論」。建構者對每一項都要回應：修正（附 commit）、不修的理由，或列為 Gate。
-- 開 PR 前檢查仍開著的 PR 是否與本次變更重疊。（`REVIEW_PROTOCOL.md`）
+- AI 在 GitHub 上寫的每一則說明、留言與 review，第一行必須是角色標頭 `[AI-Builder: 名稱]` 或 `[AI-Reviewer: 名稱]`；審查者加 `Reviewed-SHA:`，建構者請求審查時加 `AI-Review: READY` 與 `Ready-SHA:`。三方共用同一個 GitHub 身分時，只有合併動作算是人的決定。
+- 審查者每一輪都依 `REVIEWER_BOOTSTRAP.md` 從 GitHub 重建狀態，不依賴 session 記憶。
+- 開 PR 前檢查仍開著的 PR 是否與本次變更重疊。（`REVIEW_PROTOCOL.md` §3、§8）
 
 ## 8. 必須讀守則全文的情境
 

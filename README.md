@@ -9,6 +9,7 @@
 | --- | --- |
 | `AI_COLLAB_GUIDE.md` | 權威守則（canonical）。其他文件與它衝突時，以它為準 |
 | `REVIEW_PROTOCOL.md` | 建構者 ↔ 審查者 ↔ 人的 PR 協作協議：權限、四種 SHA、發現格式、回應義務 |
+| `REVIEWER_BOOTSTRAP.md` | 審查者每一輪的啟動契約：只靠 repo 與 PR 重建狀態，不依賴 session 記憶 |
 | `AI_COLLAB_QUICK_RULES.md` | 日常執行摘要，本身足以擋下最常見的危險操作 |
 | `roles/BUILDER.md`、`roles/REVIEWER.md` | 角色特有要求。角色依任務指派，不依工具或模型固定 |
 | `adapters/CLAUDE.md`、`adapters/AGENTS.md` | 入口檔骨架。依**工具**區分，不依角色區分 |
@@ -49,6 +50,8 @@ AGENTS.md                       # 入口；標記內的區塊由 kit 管理，�
 - **變更類型用算的**：`verify.sh pr --validated <sha>` 計算「已驗證 commit 之後」的變更，分為 code、config、tests、docs，
   不靠人工填寫。無法辨識的路徑一律算 code。
 - **狀態不由建構者宣告**：審查與決策狀態以 GitHub 的 review、留言與合併紀錄為準（`REVIEW_PROTOCOL.md` §2.2）。
+- **不依賴 session 記憶**：審查者每一輪都依 `REVIEWER_BOOTSTRAP.md` 從 GitHub 重建狀態；自動喚醒只是選配，失效時由人工啟動。
+- **角色簽章**：AI 常共用負責人的 GitHub 帳號，所以每則 AI 留言都以角色標頭開頭，並帶機器可讀的 SHA 欄位（`REVIEW_PROTOCOL.md` §8）。
 - **權限由 GitHub 落實**：分支保護、審查者只讀、建構者不能合併自己的 PR（`REVIEW_PROTOCOL.md` §1）。
 
 ## 版本
@@ -61,3 +64,4 @@ AGENTS.md                       # 入口；標記內的區塊由 kit 管理，�
 - `project.yaml` 只檢查頂層 key 是否存在與占位符是否填完，不驗證值的格式。
 - 變更分類規則目前固定，尚不能由專案自訂。
 - 分支保護需要人手動在 GitHub 設定；本版只提供規範，不自動設定。
+- 自動喚醒審查者（GitHub event → reviewer）尚未實作，規劃於 v0.2（`REVIEW_PROTOCOL.md` §8.3）。

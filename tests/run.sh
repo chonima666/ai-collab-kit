@@ -33,6 +33,7 @@ expect_failure "AGENTS.md is stale after the profile changes" "AGENTS.md managed
 expect_success "re-install syncs AGENTS.md" "$KIT/scripts/install.sh" "$p"
 expect_success "verify passes on a complete install" verify "$p"
 grep -qF '@.ai-collab/kit/AI_COLLAB_QUICK_RULES.md' "$p/CLAUDE.md" && ok "CLAUDE.md imports the quick rules" || bad "CLAUDE.md imports the quick rules"
+[ -f "$p/.ai-collab/kit/REVIEWER_BOOTSTRAP.md" ] && ok "reviewer bootstrap is installed" || bad "reviewer bootstrap is installed"
 grep -qF '## 2. 硬性授權邊界' "$p/AGENTS.md" && ok "AGENTS.md embeds the hard boundaries" || bad "AGENTS.md embeds the hard boundaries"
 
 # 2. Upgrade keeps project-owned content.
