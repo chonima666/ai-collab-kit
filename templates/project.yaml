@@ -1,6 +1,6 @@
 # ai-collab-kit project profile. Owned by the project: install.sh never overwrites this file.
-# Fill every REPLACE_ value. verify.sh fails while any top-level key below is missing or any
-# REPLACE_ placeholder remains.
+# Fill every value that starts with REPLACE. verify.sh fails while any top-level key below is
+# missing or any placeholder value remains (comments are ignored).
 
 project: REPLACE_PROJECT_NAME
 

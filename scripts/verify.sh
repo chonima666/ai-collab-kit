@@ -38,19 +38,22 @@ if [ "$mode" = pr ]; then
   cd "$ROOT" || exit 2
   v="$(git rev-parse --verify "$validated^{commit}" 2>/dev/null)" || { echo "unknown commit: $validated" >&2; exit 2; }
   h="$(git rev-parse --verify "$head^{commit}" 2>/dev/null)" || { echo "unknown ref: $head" >&2; exit 2; }
-  git merge-base --is-ancestor "$v" "$h" || echo "WARNING: validated commit is not an ancestor of $head"
-  declare -A files=([docs]="" [tests]="" [config]="" [code]="")
-  while IFS= read -r path; do
-    [ -n "$path" ] || continue
-    c="$(classify "$path")"
-    files[$c]+="  - $path"$'\n'
-  done < <(git diff --name-only "$v" "$h")
-  count() { printf '%s' "${files[$1]}" | grep -c '^  - ' || true; }
+  if ! git merge-base --is-ancestor "$v" "$h"; then
+    echo "ERROR: validated commit $v is not an ancestor of $head; the change list would be meaningless" >&2
+    exit 2
+  fi
+  listing="$(git diff --name-only "$v" "$h" | while IFS= read -r path; do
+    [ -n "$path" ] && printf '%s\t%s\n' "$(classify "$path")" "$path"
+  done)"
+  count() { printf '%s\n' "$listing" | grep -c "^$1	" || true; }
   echo "Validated commit: $v"
   echo "Current HEAD: $h"
   echo "Changes after validated commit: code=$(count code) config=$(count config) tests=$(count tests) docs=$(count docs)"
   for c in code config tests docs; do
-    [ -n "${files[$c]}" ] && printf '%s:\n%s' "$c" "${files[$c]}"
+    if [ "$(count "$c")" -gt 0 ]; then
+      echo "$c:"
+      printf '%s\n' "$listing" | grep "^$c	" | cut -f2- | sed 's/^/  - /'
+    fi
   done
   exit 0
 fi
@@ -82,7 +85,10 @@ else
   for key in "${AICK_PROFILE_KEYS[@]}"; do
     grep -qE "^$key:" "$profile" || problem "project.yaml: missing top-level key '$key'"
   done
-  grep -q 'REPLACE_' "$profile" && problem "project.yaml: REPLACE_ placeholders remain"
+  # Ignore comments so documentation about placeholders is not itself a placeholder.
+  if sed 's/#.*//' "$profile" | grep -qE 'REPLACE_[A-Z][A-Z_]*'; then
+    problem "project.yaml: REPLACE_ placeholders remain"
+  fi
 fi
 
 for adapter in CLAUDE.md AGENTS.md; do

@@ -60,7 +60,7 @@ AGENTS.md                       # 入口；標記內的區塊由 kit 管理，�
 
 ## 限制（v0.1.0）
 
-- 測試與腳本以 bash、git、coreutils 為前提（Linux 與 macOS）；尚未支援 Windows 原生 shell。
+- 腳本需要 Bash 3.2 以上、git 與 POSIX 工具；CI 在 Ubuntu 與 macOS（系統內建 Bash 3.2）上執行。尚未支援 Windows 原生 shell。
 - `project.yaml` 只檢查頂層 key 是否存在與占位符是否填完，不驗證值的格式。
 - 變更分類規則目前固定，尚不能由專案自訂。
 - 分支保護需要人手動在 GitHub 設定；本版只提供規範，不自動設定。

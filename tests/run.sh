@@ -21,7 +21,8 @@ new_project() {
     && git -C "$dir" config user.name test && git -C "$dir" commit -q --allow-empty -m init
   echo "$dir"
 }
-fill_profile() { sed -i.bak 's/REPLACE_[A-Z_]*/filled/g' "$1/.ai-collab/project.yaml" && rm -f "$1/.ai-collab/project.yaml.bak"; }
+# Replace only placeholder values, the way a person would; comments stay untouched.
+fill_profile() { sed -i.bak 's/REPLACE_[A-Z][A-Z_]*/filled/g' "$1/.ai-collab/project.yaml" && rm -f "$1/.ai-collab/project.yaml.bak"; }
 verify() { "$1/.ai-collab/kit/scripts/verify.sh" --root "$1"; }
 
 # 1. Fresh install: verify refuses until the project profile is filled in, then passes.
@@ -54,6 +55,10 @@ expect_failure "edited managed block in AGENTS.md is detected" "AGENTS.md manage
 cp -r "$p" "$WORK/tamper3"
 sed -i.bak '/^owner:/d' "$WORK/tamper3/.ai-collab/project.yaml" && rm -f "$WORK/tamper3/.ai-collab/project.yaml.bak"
 expect_failure "missing profile key is detected" "missing top-level key 'owner'" verify "$WORK/tamper3"
+cp -r "$p" "$WORK/comment"
+echo "# note: keep REPLACE_EXAMPLE out of values" >> "$WORK/comment/.ai-collab/project.yaml"
+"$KIT/scripts/install.sh" "$WORK/comment" >/dev/null 2>&1
+expect_success "placeholder-looking text in a comment is ignored" verify "$WORK/comment"
 
 # 4. Existing project files are respected.
 q="$(new_project existing)"
@@ -82,6 +87,12 @@ x="$(git -C "$r" rev-parse HEAD)"
 echo '{}' > "$r/docs/evidence.json" && git -C "$r" add -A && git -C "$r" commit -qm evidence
 out="$("$KIT/scripts/verify.sh" pr --validated "$x" --root "$r")"
 echo "$out" | grep -qF "code=0 config=0 tests=0 docs=1" && ok "data files under docs/ count as docs" || { bad "data files under docs/ count as docs"; echo "$out"; }
+base="$(git -C "$r" rev-parse HEAD)"
+git -C "$r" checkout -q -b side && echo s > "$r/side.py" && git -C "$r" add -A && git -C "$r" commit -qm side
+side="$(git -C "$r" rev-parse HEAD)"
+git -C "$r" checkout -q - && echo m > "$r/main.py" && git -C "$r" add -A && git -C "$r" commit -qm mainline
+expect_failure "validated commit outside HEAD's history is an error" "is not an ancestor" "$KIT/scripts/verify.sh" pr --validated "$side" --root "$r"
+expect_success "validated ancestor still classifies" "$KIT/scripts/verify.sh" pr --validated "$base" --root "$r"
 expect_failure "unknown validated commit is rejected" "unknown commit" "$KIT/scripts/verify.sh" pr --validated deadbeef --root "$r"
 
 # 6. The kit refuses to install into itself.
