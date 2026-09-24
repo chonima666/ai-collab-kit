@@ -16,6 +16,8 @@
 | `templates/project.yaml` | 專案設定範本 |
 | `templates/pull_request_template.md` | PR 說明範本，強制四種 SHA 與計算出的變更類型 |
 | `scripts/install.sh`、`scripts/verify.sh`、`scripts/lib.sh` | 安裝／升級、檢查、共用邏輯 |
+| `scripts/pr-state.sh`、`scripts/ai-review.sh`、`scripts/orchestrate.sh`、`scripts/notify-discord.sh` | 自動審查（v0.2）：從 GitHub 重建狀態、呼叫模型審查、以 Reviewer App 回寫、Discord 通知 |
+| `.github/workflows/ai-review.yml`、`docs/AUTOMATION.md` | 自動審查的 workflow 與設定步驟 |
 | `tests/run.sh` | 端對端測試 |
 
 ## 安裝到專案
@@ -60,18 +62,24 @@ AGENTS.md                       # 入口；標記內的區塊由 kit 管理，�
 
 `VERSION` 採語意化版本。本 repo 本身也走 `REVIEW_PROTOCOL.md` 的流程：建構者開 PR，審查者審，人合併。
 
+## 從 v0.1.1 升級到 v0.2.0
+
+`project.yaml` 可以新增 `identities:` 區塊（見 `templates/project.yaml`）。不使用自動審查就不需要，`verify.sh` 不要求它。
+要使用自動審查，依 `docs/AUTOMATION.md` 設定。
+
 ## 從 v0.1.0 升級
 
 `install.sh` 不會修改專案的 `project.yaml`。升級到 v0.1.1 後，請把 `templates/project.yaml` 最後的 `loop_guard:` 區塊
 加進 `.ai-collab/project.yaml`，再跑一次 `install.sh` 同步 `AGENTS.md`；在此之前 `verify.sh` 會回報缺少 `loop_guard`。
 
-## 限制（v0.1.1）
+## 限制（v0.2.0）
 
 - 腳本需要 Bash 3.2 以上、git 與 POSIX 工具；CI 在 Ubuntu 與 macOS（系統內建 Bash 3.2）上執行。尚未支援 Windows 原生 shell。
 - `project.yaml` 只檢查頂層 key 是否存在與占位符是否填完，不驗證值的格式。
 - 變更分類規則目前固定，尚不能由專案自訂。
 - 分支保護需要人手動在 GitHub 設定；本版只提供規範，不自動設定。
-- 自動喚醒審查者（GitHub event → reviewer）尚未實作，規劃於 v0.2（`REVIEW_PROTOCOL.md` §8.3），
-  前提是 Loop Guard 由 orchestrator 強制執行，且人的身分可以和 AI 區分（§9.5）。
-- `verify.sh review-state` 只判定呼叫者提供的狀態，不從 GitHub 讀取留言與輪數。共用 GitHub 身分時，
-  `Human-Decision: ALLOW_EXTRA_ROUND` 無法驗證作者，實際控制靠人手動喚醒審查者。
+- 自動審查需要三個不同的 GitHub 身分、Reviewer GitHub App、OpenAI API key 與 `ai-review` environment（`docs/AUTOMATION.md`）；
+  缺任何一項都會拒絕執行。來自 fork 的 PR 不做自動審查。
+- `install.sh` 不會安裝 workflow；要在其他專案使用自動審查，需手動複製 `.github/workflows/ai-review.yml`。
+- Discord 只做通知；Human 的決定仍在 GitHub 上以 human 身分做出。
+- 自動審查需要 `jq` 與 `curl`（GitHub 的 runner 已內建）。

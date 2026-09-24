@@ -1,0 +1,117 @@
+name: ai-review
+# Automated Reviewer (REVIEW_PROTOCOL §9.6). Trusted execution boundary:
+# - Triggers are issue_comment and workflow_dispatch only. Both run this file and the scripts
+#   as they are on the default branch, which only reaches it through a reviewed, Human-merged PR.
+#   pull_request, pull_request_target and pull_request_review are not used.
+# - Every action is pinned to a full commit SHA, so no tag can be moved under the secrets.
+# - Pull request code is never checked out or run. Its commits are fetched as git objects so
+#   the reviewer can read the diff.
+# - Job "state" holds no secrets: a read-only token rebuilds the state and applies the Loop Guard.
+# - Job "act" runs only for same-repository pull requests whose decision is REVIEW or
+#   HUMAN_GATE_REQUIRED. Its secrets live in the "ai-review" environment, restricted to the
+#   default branch. The model key and the Reviewer App key are handed over only on REVIEW.
+on:
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number
+        required: true
+permissions: {}
+concurrency:
+  # One run per pull request at a time; a duplicate event waits and then finds nothing to do.
+  group: ai-review-${{ github.event.issue.number || inputs.pr }}
+  cancel-in-progress: false
+jobs:
+  state:
+    if: >-
+      vars.AICK_AUTO_REVIEW == 'true' &&
+      (github.event_name == 'workflow_dispatch' || github.event.issue.pull_request)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+    outputs:
+      decision: ${{ steps.state.outputs.decision }}
+      same_repo: ${{ steps.state.outputs.same_repo }}
+      trigger: ${{ steps.state.outputs.trigger }}
+      pr: ${{ steps.state.outputs.pr }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - id: state
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.issue.number || inputs.pr }}
+          COMMENT_AUTHOR: ${{ github.event.comment.user.login }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          if [ -f .ai-collab/kit/scripts/pr-state.sh ]; then kit=.ai-collab/kit; else kit=.; fi
+          . "$kit/scripts/lib.sh"
+          builder="$(aick_identity .ai-collab/project.yaml builder | tr '[:upper:]' '[:lower:]')"
+          author="$(printf '%s' "$COMMENT_AUTHOR" | tr '[:upper:]' '[:lower:]')"
+          trigger=other
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            trigger=ready
+          elif [ -n "$builder" ] && [ "$author" = "$builder" ] \
+              && printf '%s\n' "$COMMENT_BODY" | tr -d '\r' | grep -qx 'AI-Review: READY'; then
+            trigger=ready
+          fi
+          set +e
+          "$kit/scripts/pr-state.sh" --repo "$GITHUB_REPOSITORY" --pr "$PR" > state.txt
+          code=$?
+          set -e
+          cat state.txt
+          # Exit 2 means missing identities or bad input: fail closed and visibly.
+          [ "$code" -ne 2 ] || exit 1
+          {
+            echo "decision=$(sed -n 's/^decision=//p' state.txt | tail -n 1)"
+            echo "same_repo=$(sed -n 's/^same_repo=//p' state.txt | tail -n 1)"
+            echo "trigger=$trigger"
+            echo "pr=$PR"
+          } >> "$GITHUB_OUTPUT"
+          { echo '```text'; cat state.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+  act:
+    needs: state
+    if: >-
+      needs.state.outputs.same_repo == 'true' &&
+      (needs.state.outputs.decision == 'REVIEW' || needs.state.outputs.decision == 'HUMAN_GATE_REQUIRED')
+    runs-on: ubuntu-latest
+    environment: ai-review
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+      - id: app
+        if: needs.state.outputs.decision == 'REVIEW'
+        # A missing or broken App key leaves the token empty; orchestrate.sh then fails closed
+        # and reports REVIEW_FAILED instead of posting under any other identity.
+        continue-on-error: true
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1.12.0
+        with:
+          app-id: ${{ vars.AICK_REVIEWER_APP_ID }}
+          private-key: ${{ secrets.AICK_REVIEWER_PRIVATE_KEY }}
+          permission-contents: read
+          permission-pull-requests: write
+      - env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR: ${{ needs.state.outputs.pr }}
+          TRIGGER: ${{ needs.state.outputs.trigger }}
+          AICK_REVIEWER_TOKEN: ${{ steps.app.outputs.token }}
+          AICK_REVIEWER_MODEL: ${{ vars.AICK_REVIEWER_MODEL }}
+          OPENAI_API_KEY: ${{ needs.state.outputs.decision == 'REVIEW' && secrets.OPENAI_API_KEY || '' }}
+          AICK_DISCORD_WEBHOOK: ${{ secrets.AICK_DISCORD_WEBHOOK }}
+        run: |
+          if [ -f .ai-collab/kit/scripts/orchestrate.sh ]; then kit=.ai-collab/kit; else kit=.; fi
+          "$kit/scripts/orchestrate.sh" --repo "$GITHUB_REPOSITORY" --pr "$PR" --trigger "$TRIGGER" \
+            --work-dir "$RUNNER_TEMP/aick"

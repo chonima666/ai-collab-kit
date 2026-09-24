@@ -1,0 +1,14 @@
+# ai-collab-kit's own profile, read by .github/workflows/ai-review.yml. The kit is not installed
+# into its own repository, so only the blocks the automated reviewer reads are here.
+# Changing any value needs a pull request merged by the owner (LG-06a).
+
+loop_guard:
+  max_review_rounds: 3
+  require_new_sha_for_rereview: true
+
+# Three different GitHub logins (REVIEW_PROTOCOL §9.5, §9.6). While any is empty or two are the
+# same, the automated reviewer refuses to run. See docs/AUTOMATION.md.
+identities:
+  human: ""       # the owner's own account: merges and Human-Decision comments
+  builder: ""     # the account or App the Builder AI posts as
+  reviewer: ""    # the Reviewer App's bot login, e.g. my-reviewer[bot]

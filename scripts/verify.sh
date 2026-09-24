@@ -48,16 +48,7 @@ ROOT="$(cd "$ROOT" && pwd)" || exit 2
 loop_guard_config() {
   local entries max new_sha
   grep -qE '^loop_guard:[[:space:]]*(#.*)?$' "$1" || { echo "project.yaml: missing top-level key 'loop_guard'"; return 1; }
-  entries="$(awk '
-    /^[^[:space:]#]/ { inside = ($0 ~ /^loop_guard:[[:space:]]*(#.*)?$/); next }
-    inside {
-      line = $0; sub(/#.*/, "", line)
-      if (line ~ /^[[:space:]]+[a-z_]+:/) {
-        key = line; sub(/^[[:space:]]+/, "", key); sub(/:.*/, "", key)
-        val = line; sub(/^[^:]*:[[:space:]]*/, "", val); sub(/[[:space:]]+$/, "", val)
-        print key "=" val
-      }
-    }' "$1")"
+  entries="$(aick_profile_block "$1" loop_guard)"
   max="$(printf '%s\n' "$entries" | grep '^max_review_rounds=' || true)"
   new_sha="$(printf '%s\n' "$entries" | grep '^require_new_sha_for_rereview=' || true)"
   { [ "$(printf '%s\n' "$max" | grep -c .)" -eq 1 ] && printf '%s\n' "$max" | grep -qxE 'max_review_rounds=[1-9][0-9]{0,2}'; } \
