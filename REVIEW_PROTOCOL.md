@@ -133,14 +133,14 @@ AI 在 GitHub 上寫的每一則 PR 說明、留言與 review，第一行都必�
 
 沒有角色標頭的留言視為人所寫。AI 不得省略標頭，也不得冒用另一個角色的標頭。
 
-### 8.3 喚醒（自動化為選配，v0.2 規劃）
+### 8.3 喚醒（自動化為選配，v0.2 起提供）
 
 審查者從 GitHub 狀態重建脈絡（`REVIEWER_BOOTSTRAP.md`），所以喚醒只是「何時開始一輪審查」，不承載狀態。
 
-- 觸發事件：PR opened、synchronize（新 commit）、review requested、reopened，以及建構者的 `AI-Review: READY`。
-- 不因任意留言觸發；帶 `[AI-Reviewer:` 標頭的留言一律不觸發審查者。
+- 觸發事件：建構者的 `AI-Review: READY` 留言，或人手動啟動。其他留言只會重新判定狀態，不會單獨開始一輪。
+- 審查者自己的留言與 review 一律不觸發審查。
 - Current HEAD 等於最近一次的 `Reviewed-SHA` 時，不做完整的程式審查。
-- 每次喚醒前先套用 Loop Guard（§9）；啟用自動喚醒的前提見 §9.5。
+- 每次喚醒前先套用 Loop Guard（§9）；啟用自動喚醒的前提見 §9.5，實作見 §9.6。
 - 自動化失效時，依 `REVIEWER_BOOTSTRAP.md` §8 由人工啟動；流程不得依賴自動化才能運作。
 
 ## 9. Loop Guard（審查輪數控制）
@@ -217,7 +217,7 @@ Reason: <理由>
 - 真正的控制是**人手動決定並手動喚醒審查者**，不是 AI 解析這則留言後自行取得額外輪次。
 - AI 不得自行寫出 `Human-Decision:` 留言，也不得替人轉貼。轉錄人的決定時，必須放在 AI 自己的角色標頭之下，並註明是轉錄。
 
-### 9.5 自動喚醒的前提（v0.2）
+### 9.5 自動喚醒的前提
 
 自動喚醒（§8.3）啟用前，下列兩項都必須先完成：
 
@@ -226,3 +226,47 @@ Reason: <理由>
    GitHub App 或 bot；或有可驗證的外部 Human 授權管道。
 
 未滿足前，只能由人手動喚醒審查者。
+
+### 9.6 自動審查（v0.2）
+
+`.github/workflows/ai-review.yml` 把 §9.5 的前提寫成程式。流程：
+
+1. 建構者貼出 `AI-Review: READY` 留言（或人手動啟動 workflow）。
+2. `scripts/pr-state.sh` 從 GitHub 實際的 PR 留言與 review 重建狀態，交給 `verify.sh review-state` 判定（§9.3）。
+3. 依判定結果：
+   - `NO_ACTION`：什麼都不做，不呼叫模型。
+   - `HUMAN_GATE_REQUIRED`：不呼叫模型，只發 Discord 通知人。
+   - `REVIEW`：`scripts/ai-review.sh` 以 `REVIEWER_BOOTSTRAP.md`、本協議與 repo／PR 的實際資料組成 prompt，呼叫模型，
+     檢查輸出後由 `scripts/orchestrate.sh` 以 **Reviewer GitHub App** 的身分，把結果貼成一則針對 Ready-SHA 的 PR review（COMMENT）。
+
+**身分決定權威**（身分分開後取代 §8.1 的限制）：`project.yaml` 的 `identities:` 列出人、建構者、審查者三個不同的 GitHub
+login。重建狀態時，每一種紀錄只認它擁有者的發言：
+
+| 紀錄 | 只認誰寫的 |
+| --- | --- |
+| `AI-Review: READY`、`Ready-SHA:` | `identities.builder` |
+| `Review-Status:`、`Reviewed-SHA:`、`Open-Findings:` | `identities.reviewer` |
+| `Human-Decision: ALLOW_EXTRA_ROUND` | `identities.human` |
+
+PR 說明裡宣稱的審查狀態一律不算。三個身分有任一個未設定、或有兩個相同時，自動審查拒絕執行（fail closed），
+不會退回共用帳號。
+
+**模型輸出的約束**：
+- 角色標頭、`Reviewed-SHA:` 與輪次由腳本寫入，不由模型寫。
+- 模型必須以 `Review-Status:` 與 `Open-Findings:` 結尾；`VERIFIED` 必須是 `Open-Findings: none`，`CHANGES_REQUESTED` 至少要有一個編號。
+  不符合就不貼文，並通知 `REVIEW_FAILED`。
+- 模型寫出的協議欄位與角色標頭會被刪除。
+- API 逾時、錯誤、缺少 `OPENAI_API_KEY` 或 Reviewer App 金鑰時，一律失敗且不貼文。
+
+**可信執行邊界**：
+- workflow 只由 `issue_comment` 與 `workflow_dispatch` 觸發，兩者都執行預設分支上、經人合併的 workflow 與腳本。
+- 不使用 `pull_request`、`pull_request_target` 或 `pull_request_review` 觸發。
+- PR 的程式碼只以 git 物件取得，用來產生 diff，從不 checkout 成工作目錄或執行。
+- 判定狀態的 job 沒有任何 secret。需要 secret 的 job 只在同 repo 的 PR、判定為 `REVIEW` 或 `HUMAN_GATE_REQUIRED` 時執行，
+  secret 放在只限預設分支使用的 `ai-review` environment。模型金鑰與 Reviewer App 金鑰只在 `REVIEW` 時交出。
+- 來自 fork 的 PR 一律不自動審查。
+
+**Discord** 只做通知，不接受決定：`REVIEW_STARTED`、`REVIEW_VERIFIED`、`CHANGES_REQUESTED`、`HUMAN_GATE_REQUIRED`、
+`REVIEW_FAILED`。
+
+設定步驟見 `docs/AUTOMATION.md`。自動化失效時，仍可依 `REVIEWER_BOOTSTRAP.md` §8 由人手動啟動審查。

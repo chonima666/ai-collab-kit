@@ -16,6 +16,10 @@ AICK_MANAGED_FILES=(
   roles/REVIEWER.md
   scripts/lib.sh
   scripts/verify.sh
+  scripts/pr-state.sh
+  scripts/ai-review.sh
+  scripts/notify-discord.sh
+  scripts/orchestrate.sh
 )
 # Top-level keys every project.yaml must define.
 AICK_PROFILE_KEYS=(project owner roles tracking stricter_rules commands lint_baseline
@@ -61,4 +65,24 @@ aick_extract_block() {
 
 aick_has_markers() {
   grep -qxF "$AICK_BEGIN" "$1" && grep -qxF "$AICK_END" "$1"
+}
+
+# Print "key=value" for each "  key: value" line inside top-level block $2 of YAML file $1.
+# Comments are dropped. Only flat blocks of scalars are supported, which is all the profile uses.
+aick_profile_block() {
+  awk -v block="$2" '
+    /^[^[:space:]#]/ { inside = ($0 ~ "^" block ":[[:space:]]*(#.*)?$"); next }
+    inside {
+      line = $0; sub(/#.*/, "", line)
+      if (line ~ /^[[:space:]]+[a-z_]+:/) {
+        key = line; sub(/^[[:space:]]+/, "", key); sub(/:.*/, "", key)
+        val = line; sub(/^[^:]*:[[:space:]]*/, "", val); sub(/[[:space:]]+$/, "", val)
+        print key "=" val
+      }
+    }' "$1"
+}
+
+# Print identities.$2 from project.yaml $1 without surrounding quotes; empty when unset.
+aick_identity() {
+  aick_profile_block "$1" identities | sed -n "s/^$2=//p" | tail -n 1 | sed "s/^[\"']//; s/[\"']\$//"
 }
