@@ -251,10 +251,17 @@ login。重建狀態時，每一種紀錄只認它擁有者的發言：
 PR 說明裡宣稱的審查狀態一律不算。三個身分有任一個未設定、或有兩個相同時，自動審查拒絕執行（fail closed），
 不會退回共用帳號。
 
+審查者寫的每一則帶 `Review-Status:` 的紀錄都必須完整：
+- `Reviewed-SHA:` 是 40 字元的 SHA，且一定要有 `Open-Findings:`。
+- `VERIFIED` 必須是 `none`，`CHANGES_REQUESTED` 至少要有一個合法編號。
+
+有任何一則不完整，就停止重建狀態（exit 2），不會把缺少的欄位當成 `none`。
+
 **模型輸出的約束**：
 - 角色標頭、`Reviewed-SHA:` 與輪次由腳本寫入，不由模型寫。
-- 模型必須以 `Review-Status:` 與 `Open-Findings:` 結尾；`VERIFIED` 必須是 `Open-Findings: none`，`CHANGES_REQUESTED` 至少要有一個編號。
-  不符合就不貼文，並通知 `REVIEW_FAILED`。
+- 模型回覆的最後兩個非空行必須依序是 `Review-Status:` 與 `Open-Findings:`，這兩個欄位在回覆中各只能出現一次。
+  `VERIFIED` 必須是 `Open-Findings: none`，`CHANGES_REQUESTED` 至少要有一個編號。
+  不符合就不貼文，並通知 `REVIEW_FAILED`；腳本不會修補格式不對的輸出。
 - 模型寫出的協議欄位與角色標頭會被刪除。
 - API 逾時、錯誤、缺少 `OPENAI_API_KEY` 或 Reviewer App 金鑰時，一律失敗且不貼文。
 
@@ -262,6 +269,7 @@ PR 說明裡宣稱的審查狀態一律不算。三個身分有任一個未設�
 - workflow 只由 `issue_comment` 與 `workflow_dispatch` 觸發，兩者都執行預設分支上、經人合併的 workflow 與腳本。
 - 不使用 `pull_request`、`pull_request_target` 或 `pull_request_review` 觸發。
 - PR 的程式碼只以 git 物件取得，用來產生 diff，從不 checkout 成工作目錄或執行。
+- workflow 使用的每一個 action 都固定在完整的 commit SHA，不用可以移動的 tag。
 - 判定狀態的 job 沒有任何 secret。需要 secret 的 job 只在同 repo 的 PR、判定為 `REVIEW` 或 `HUMAN_GATE_REQUIRED` 時執行，
   secret 放在只限預設分支使用的 `ai-review` environment。模型金鑰與 Reviewer App 金鑰只在 `REVIEW` 時交出。
 - 來自 fork 的 PR 一律不自動審查。

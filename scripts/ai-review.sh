@@ -139,10 +139,18 @@ fi
 [ -z "$raw_out" ] || cp "$work/answer" "$raw_out"
 [ -s "$work/answer" ] || model_error "empty reply"
 
-# The status block is taken from the last matching lines and checked against §9 before posting.
+# The reply must end with exactly one status block: Review-Status then Open-Findings as its last
+# two non-empty lines, with neither field anywhere else. Anything else is rejected, not repaired.
 answer="$(tr -d '\r' < "$work/answer")"
-last_field() { printf '%s\n' "$answer" | sed -n "s/^$1:[[:space:]]*//p" | tail -n 1 | sed 's/[[:space:]]*$//'; }
-status="$(last_field Review-Status)" open="$(last_field Open-Findings)"
+count_field() { printf '%s\n' "$answer" | grep -cE "^[[:space:]]*$1:" || true; }
+[ "$(count_field Review-Status)" = 1 ] || model_error "Review-Status must appear exactly once"
+[ "$(count_field Open-Findings)" = 1 ] || model_error "Open-Findings must appear exactly once"
+tail2="$(printf '%s\n' "$answer" | sed '/^[[:space:]]*$/d' | tail -n 2)"
+status_line="$(printf '%s\n' "$tail2" | sed -n 1p)" open_line_in="$(printf '%s\n' "$tail2" | sed -n 2p)"
+case "$status_line" in Review-Status:*) ;; *) model_error "the reply must end with Review-Status then Open-Findings" ;; esac
+case "$open_line_in" in Open-Findings:*) ;; *) model_error "the reply must end with Review-Status then Open-Findings" ;; esac
+field_value() { printf '%s\n' "$1" | sed "s/^[^:]*:[[:space:]]*//; s/[[:space:]]*\$//"; }
+status="$(field_value "$status_line")" open="$(field_value "$open_line_in")"
 case "$status" in
   VERIFIED|CHANGES_REQUESTED) ;;
   *) model_error "Review-Status must be VERIFIED or CHANGES_REQUESTED, got '$status'" ;;

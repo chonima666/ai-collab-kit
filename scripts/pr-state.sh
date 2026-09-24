@@ -108,21 +108,33 @@ records="$(printf '%s\n' "$timeline" | jq -r --arg human "$human" --arg builder 
   | ( [ if ($p.user.login | ascii_downcase) == $builder then $p.body else empty end ]
       + [ .[] | select((.login | ascii_downcase) == $builder) | .body ]
       | map(select(field("AI-Review") == "READY") | field("Ready-SHA") | sha) | last // "" ) as $ready
-  | [ .[] | select((.login | ascii_downcase) == $reviewer) | .body
-      | select(field("Review-Status") | . == "VERIFIED" or . == "CHANGES_REQUESTED")
-      | (field("Reviewed-SHA") | sha) as $s
-      | (field("Open-Findings") // "none") as $o
-      | ($o | if ascii_downcase == "none" then [] else [splits("[,[:space:]]+")] | map(select(. != "")) end
-          | join(",")) as $ids
-      | $s + (if $ids == "" then "" else ":" + $ids end) ] as $reviewed
+  # Every Reviewer comment or review that carries Review-Status is a round record and must be
+  # complete: a missing or inconsistent field is an error, never read as "no open findings".
+  | [ .[] | select((.login | ascii_downcase) == $reviewer) | .body | select(field("Review-Status") != null)
+      | field("Review-Status") as $st | field("Reviewed-SHA") as $s | field("Open-Findings") as $o
+      | (if $o == null or ($o | ascii_downcase) == "none" then []
+         else [$o | splits("[,[:space:]]+")] | map(select(. != "")) end) as $ids
+      | if ($st != "VERIFIED" and $st != "CHANGES_REQUESTED") then {bad: "Review-Status \($st)"}
+        elif ($s == null or ($s | test("^[0-9a-f]{40}$") | not)) then {bad: "Reviewed-SHA \($s)"}
+        elif $o == null then {bad: "no Open-Findings at \($s)"}
+        elif ($ids | map(test("^[A-Za-z0-9][A-Za-z0-9._-]*$")) | all | not) then {bad: "Open-Findings \($o) at \($s)"}
+        elif $st == "VERIFIED" and ($ids | length) > 0 then {bad: "VERIFIED with open findings at \($s)"}
+        elif $st == "CHANGES_REQUESTED" and ($ids | length) == 0 then {bad: "CHANGES_REQUESTED without open findings at \($s)"}
+        else {rec: ($s + (if ($ids | length) == 0 then "" else ":" + ($ids | join(",")) end))} end ] as $records
+  | [ $records[] | .rec // empty ] as $reviewed
   | [ .[] | select((.login | ascii_downcase) == $human) | select(.body | field("Human-Decision") == "ALLOW_EXTRA_ROUND") ]
       | length as $extra
   | "ready=\($ready)", "extra=\($extra)", "number=\($p.number)", "base=\($p.base.sha)",
     "head=\($p.head.sha)",
     "same_repo=\(if $p.head.repo.full_name != null and $p.head.repo.full_name == $p.base.repo.full_name then "true" else "false" end)",
-    ($reviewed[] | "reviewed=\(.)")
+    ($reviewed[] | "reviewed=\(.)"), ($records[] | .bad // empty | "invalid=\(.)")
 ')" || usage_error "cannot parse $pr_file"
 value() { printf '%s\n' "$records" | sed -n "s/^$1=//p"; }
+invalid="$(value invalid)"
+if [ -n "$invalid" ]; then
+  printf '%s\n' "$invalid" | sed 's/^/invalid Reviewer record: /' >&2
+  usage_error "the Loop Guard state cannot be rebuilt until the Reviewer records are complete (REVIEW_PROTOCOL §9.2)"
+fi
 ready="$(value ready)" head="$(value head)"
 
 context() {

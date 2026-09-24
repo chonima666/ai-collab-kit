@@ -3,6 +3,7 @@ name: ai-review
 # - Triggers are issue_comment and workflow_dispatch only. Both run this file and the scripts
 #   as they are on the default branch, which only reaches it through a reviewed, Human-merged PR.
 #   pull_request, pull_request_target and pull_request_review are not used.
+# - Every action is pinned to a full commit SHA, so no tag can be moved under the secrets.
 # - Pull request code is never checked out or run. Its commits are fetched as git objects so
 #   the reviewer can read the diff.
 # - Job "state" holds no secrets: a read-only token rebuilds the state and applies the Loop Guard.
@@ -38,7 +39,7 @@ jobs:
       trigger: ${{ steps.state.outputs.trigger }}
       pr: ${{ steps.state.outputs.pr }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
@@ -87,7 +88,7 @@ jobs:
       pull-requests: read
       issues: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 0
@@ -96,7 +97,7 @@ jobs:
         # A missing or broken App key leaves the token empty; orchestrate.sh then fails closed
         # and reports REVIEW_FAILED instead of posting under any other identity.
         continue-on-error: true
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1.12.0
         with:
           app-id: ${{ vars.AICK_REVIEWER_APP_ID }}
           private-key: ${{ secrets.AICK_REVIEWER_PRIVATE_KEY }}
