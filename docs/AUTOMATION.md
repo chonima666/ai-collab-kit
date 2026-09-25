@@ -50,6 +50,9 @@ Repo → Settings → Environments → **New environment**，名稱 `ai-review`�
 
 - **Deployment branches and tags**：選 **Selected branches and tags**，只加入 `main`。
   這樣只有在預設分支上執行的 job 拿得到下列 secret。
+  這個限制和 workflow 的 trigger 相容：`issue_comment` 的 `GITHUB_REF` 永遠是預設分支；
+  `workflow_dispatch` 則是「Use workflow from」選的分支，所以手動執行時要選 `main`，選其他分支會被 environment 擋下（fail closed）。
+  workflow 不使用 `pull_request` 系列 trigger，不會遇到 PR merge ref 被擋的情況。
 - **Environment secrets**：
 
   | 名稱 | 內容 |
@@ -65,7 +68,21 @@ Repo → Settings → Environments → **New environment**，名稱 `ai-review`�
   | `AICK_REVIEWER_APP_ID` | 第 2 步的 App ID |
   | `AICK_REVIEWER_MODEL` | 要用的 OpenAI 模型名稱 |
 
-這些 secret 不要設在 repo 層級，只放在 `ai-review` environment。
+這些 secret 不要設在 repo 層級，只放在 `ai-review` environment。原因：`ci.yml` 在 `pull_request` 事件上執行的是
+PR 分支上的 workflow 檔，有 Write 權限的 builder 可以在 PR 裡修改它。repo 層級的 secret 會被這種未經審查的 workflow 讀到；
+限定 `main` 的 environment 只給已合併進預設分支的程式碼。
+兩個 environment variables 不是機密，技術上放 repo 層級也能讀到（environment 的值優先），放在這裡只是讓 Reviewer 的設定集中。
+
+`AICK_REVIEWER_MODEL` 必須支援 Chat Completions（`ai-review.sh` 呼叫 `/v1/chat/completions`，帶 system 與 user 訊息）。
+ChatGPT 訂閱、API 額度與 API 可用的模型是分開的；填入前先用同一把 key 確認：
+
+```bash
+curl -sS https://api.openai.com/v1/chat/completions \
+  -H "Authorization: Bearer $OPENAI_API_KEY" -H "Content-Type: application/json" \
+  -d '{"model":"<模型 ID>","messages":[{"role":"system","content":"ping"},{"role":"user","content":"reply OK"}]}'
+```
+
+回覆有 `choices[0].message.content` 才代表可用；401、429 通常是 key 或額度問題。
 
 ## 4. Discord webhook（選配）
 
@@ -90,7 +107,8 @@ identities:
 Repo → Settings → Secrets and variables → Actions → **Variables** → 新增 **repository variable**
 `AICK_AUTO_REVIEW` = `true`。這個變數必須設在 repo 層級，因為判定狀態的 job 不使用 environment。
 
-測試：Actions → ai-review → **Run workflow**，輸入一個已有 `AI-Review: READY` 的 PR 編號。
+測試：Actions → ai-review → **Run workflow**，分支選 `main`，輸入一個已由 builder 貼過 `AI-Review: READY` 的 PR 編號。
+手動執行也只認 `identities.builder` 寫的 `Ready-SHA:`，沒有就判定為 `NO_ACTION`。
 
 ## 安裝到其他專案
 
