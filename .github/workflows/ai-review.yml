@@ -1,15 +1,19 @@
 name: ai-review
-# Automated Reviewer (REVIEW_PROTOCOL §9.6). Trusted execution boundary:
-# - Triggers are issue_comment and workflow_dispatch only. Both run this file and the scripts
-#   as they are on the default branch, which only reaches it through a reviewed, Human-merged PR.
+# Automated Reviewer (REVIEW_PROTOCOL §9.6) and automatic delivery (§10). Trusted execution boundary:
+# - Triggers are issue_comment, workflow_dispatch and workflow_run of "ci". All three run this
+#   file and the scripts as they are on the default branch, which only changes through a merged
+#   pull request, and every change to .github/ or the kit needs the owner (Policy Gate).
 #   pull_request, pull_request_target and pull_request_review are not used.
 # - Every action is pinned to a full commit SHA, so no tag can be moved under the secrets.
 # - Pull request code is never checked out or run. Its commits are fetched as git objects so
-#   the reviewer can read the diff.
+#   the reviewer can read the diff and the Policy Gate can list the changed files.
 # - Job "state" holds no secrets: a read-only token rebuilds the state and applies the Loop Guard.
 # - Job "act" runs only for same-repository pull requests whose decision is REVIEW or
-#   HUMAN_GATE_REQUIRED. Its secrets live in the "ai-review" environment, restricted to the
-#   default branch. The model key and the Reviewer App key are handed over only on REVIEW.
+#   HUMAN_GATE_REQUIRED. The model key and the Reviewer App key are handed over only on REVIEW.
+#   The Reviewer App token can read code and write pull request reviews, nothing else.
+# - Job "deliver" runs after a posted review or a successful CI run. It alone holds the Merger
+#   App token, posts the required "ai-collab/gate" status and merges only on AUTO_MERGE_ALLOWED.
+# - All secrets live in the "ai-review" environment, restricted to the default branch.
 on:
   issue_comment:
     types: [created]
@@ -18,10 +22,13 @@ on:
       pr:
         description: Pull request number
         required: true
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
 permissions: {}
 concurrency:
-  # One run per pull request at a time; a duplicate event waits and then finds nothing to do.
-  group: ai-review-${{ github.event.issue.number || inputs.pr }}
+  # One run per pull request at a time; a duplicate event waits and then decides again.
+  group: ai-review-${{ github.event.issue.number || inputs.pr || github.event.workflow_run.pull_requests[0].number || github.run_id }}
   cancel-in-progress: false
 jobs:
   state:
@@ -114,4 +121,51 @@ jobs:
         run: |
           if [ -f .ai-collab/kit/scripts/orchestrate.sh ]; then kit=.ai-collab/kit; else kit=.; fi
           "$kit/scripts/orchestrate.sh" --repo "$GITHUB_REPOSITORY" --pr "$PR" --trigger "$TRIGGER" \
+            --work-dir "$RUNNER_TEMP/aick"
+
+  deliver:
+    needs: [state, act]
+    # After this run posted a review, after CI finished green on a same-repository pull request,
+    # or on a manual run. Whatever triggered it, the Policy Gate decides again from GitHub.
+    if: >-
+      !cancelled() && vars.AICK_AUTO_REVIEW == 'true' && vars.AICK_AUTO_MERGE == 'true' && (
+        (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request' &&
+          github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.pull_requests[0].number &&
+          github.event.workflow_run.head_repository.full_name == github.repository) ||
+        (github.event_name == 'workflow_dispatch' && needs.state.result == 'success' &&
+          needs.state.outputs.same_repo == 'true') ||
+        (github.event_name == 'issue_comment' && needs.act.result == 'success' &&
+          needs.state.outputs.decision == 'REVIEW'))
+    runs-on: ubuntu-latest
+    environment: ai-review
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      checks: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+      - id: app
+        # A missing or broken App key leaves the token empty; deliver.sh then posts nothing and
+        # merges nothing.
+        continue-on-error: true
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1.12.0
+        with:
+          app-id: ${{ vars.AICK_MERGER_APP_ID }}
+          private-key: ${{ secrets.AICK_MERGER_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-statuses: write
+      - env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.workflow_run.pull_requests[0].number || needs.state.outputs.pr }}
+          TRIGGER: ${{ github.event_name == 'workflow_run' && 'ci' || 'review' }}
+          AICK_MERGER_TOKEN: ${{ steps.app.outputs.token }}
+          AICK_DISCORD_WEBHOOK: ${{ secrets.AICK_DISCORD_WEBHOOK }}
+        run: |
+          if [ -f .ai-collab/kit/scripts/deliver.sh ]; then kit=.ai-collab/kit; else kit=.; fi
+          "$kit/scripts/deliver.sh" --repo "$GITHUB_REPOSITORY" --pr "$PR" --trigger "$TRIGGER" \
             --work-dir "$RUNNER_TEMP/aick"

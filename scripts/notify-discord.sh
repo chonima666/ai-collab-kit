@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
-# Send one Loop Guard event to Discord. Notification only: nothing sent back is read.
-#   notify-discord.sh <event> <repo> <pr> <ready-sha> [detail]
-# event: REVIEW_STARTED, REVIEW_VERIFIED, CHANGES_REQUESTED, HUMAN_GATE_REQUIRED, REVIEW_FAILED.
+# Send one review or delivery event to Discord. Notification only: nothing sent back is read.
+#   notify-discord.sh <event> <repo> <pr> <sha> [detail]
+# event: REVIEW_STARTED, REVIEW_VERIFIED, CHANGES_REQUESTED, HUMAN_GATE_REQUIRED, REVIEW_FAILED,
+# AUTO_MERGED, AUTO_MERGE_FAILED.
 # The webhook URL comes only from $AICK_DISCORD_WEBHOOK and is never printed. Without it the
 # script says so and exits 0; exit 1 means Discord rejected or could not be reached.
 set -uo pipefail
 
-[ $# -ge 4 ] || { echo "usage: $0 <event> <repo> <pr> <ready-sha> [detail]" >&2; exit 2; }
-event="$1" repo="$2" pr="$3" ready="$4" detail="${5:-}"
+[ $# -ge 4 ] || { echo "usage: $0 <event> <repo> <pr> <sha> [detail]" >&2; exit 2; }
+event="$1" repo="$2" pr="$3" sha="$4" detail="${5:-}"
 case "$event" in
-  REVIEW_STARTED|REVIEW_VERIFIED|CHANGES_REQUESTED|HUMAN_GATE_REQUIRED|REVIEW_FAILED) ;;
+  REVIEW_STARTED|REVIEW_VERIFIED|CHANGES_REQUESTED|HUMAN_GATE_REQUIRED|REVIEW_FAILED|AUTO_MERGED|AUTO_MERGE_FAILED) ;;
   *) echo "unknown event: $event" >&2; exit 2 ;;
 esac
 if [ -z "${AICK_DISCORD_WEBHOOK:-}" ]; then
@@ -17,13 +18,13 @@ if [ -z "${AICK_DISCORD_WEBHOOK:-}" ]; then
   exit 0
 fi
 
-short="${ready:0:7}"
+short="${sha:0:7}"
 url="${GITHUB_SERVER_URL:-https://github.com}/$repo/pull/$pr"
-text="**$event** · $repo#$pr · Ready-SHA \`${short:-none}\`
+text="**$event** · $repo#$pr · SHA \`${short:-none}\`
 ${detail:+$(printf '%s' "$detail" | head -c 1500)
 }$url"
 [ "$event" = HUMAN_GATE_REQUIRED ] && text="$text
-Human decision needed: ALLOW_EXTRA_ROUND / ACCEPT_RISK / REQUIRE_FIX / STOP"
+Automation stopped for this pull request. The owner decides: fix it, merge it by hand, or close it."
 
 # allowed_mentions stops PR text from pinging anyone.
 payload="$(jq -n --arg content "$text" '{content: $content, allowed_mentions: {parse: []}}')"

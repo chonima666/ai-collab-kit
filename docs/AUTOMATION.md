@@ -1,32 +1,35 @@
-# 自動審查設定（v0.2）
+# 自動審查與自動交付設定（v0.3）
 
-自動審查的規則見 `REVIEW_PROTOCOL.md` §9.6。本檔只講設定：建構者 AI 貼出 `AI-Review: READY` 之後，
-GitHub Actions 會重建狀態、套用 Loop Guard，判定為 `REVIEW` 時才呼叫 OpenAI API 審查，並以 Reviewer App 的身分貼回結果。
+規則見 `REVIEW_PROTOCOL.md` §9.6（自動審查）與 §10（Policy Gate 與自動交付）。本檔只講設定。流程是：
 
-下列步驟都要由 owner 在 GitHub、OpenAI 與 Discord 上操作，AI 無法代做。**全部完成前不要打開 `AICK_AUTO_REVIEW`**。
-即使打開了，只要缺任何一項，workflow 也會拒絕執行（fail closed）。
+```text
+建構者 AI（owner 的帳號）開 PR → 貼 AI-Review: READY
+  → Reviewer App 審查（CHANGES_REQUESTED 時建構者修正，再 READY，最多 3 輪）
+  → CI 通過 + Reviewer VERIFIED + Policy Gate 放行 → Merger App 自動合併
+  → 否則停在 HUMAN_GATE_REQUIRED，通知 owner
+```
 
-## 1. 身分：三個不同的 GitHub login
+下列步驟都要由 owner 在 GitHub、OpenAI 與 Discord 上操作，AI 無法代做。兩個開關（第 9 步）打開前，什麼都不會執行；
+打開後只要缺任何一項，workflow 也會拒絕執行（fail closed）。
 
-| 角色 | 建議 | 權限 |
+## 1. 身分
+
+| 角色 | GitHub 身分 | 用途 |
 | --- | --- | --- |
-| human | owner 自己的帳號（例如 `chonima666`） | Admin；唯一會合併、寫 `Human-Decision:` 的帳號 |
-| builder | 給建構者 AI 專用的另一個 GitHub 帳號（例如 `chonima666-builder`） | 以 collaborator 身分邀請，只給 **Write**，不給 Admin |
-| reviewer | 第 2 步建立的 Reviewer App，login 是 `<app-slug>[bot]` | 見第 2 步 |
+| 建構者（Builder AI） | owner 自己的帳號，也就是 claude.ai 連結的 GitHub 帳號（例如 `chonima666`） | 開 PR、push、貼 READY |
+| 審查者（Reviewer AI） | Reviewer App，login 是 `<app-slug>[bot]`（第 2 步） | 貼出審查結果 |
+| Merger App | 另一個 GitHub App（第 3 步） | 發布 `ai-collab/gate` 狀態、自動合併 |
 
-**為什麼 builder 需要另一個帳號**：Claude Code on the web 用的是你在 claude.ai 連結的 GitHub 帳號發言與 push。
-如果連結的是 owner 帳號，建構者寫的每一則留言在 GitHub 上都會變成「owner 寫的」，就無法分辨 `Human-Decision:` 是誰給的。
-做法是建立 builder 帳號、邀請它成為 repo collaborator（Write），再把 claude.ai 的 GitHub 連結改成這個帳號。
+不需要另外建立 builder 專用帳號。建構者與 owner 共用帳號，所以 GitHub 分不出哪些留言是人寫的；自動化因此不接受任何
+「人的授權」留言，真正的邊界放在 `main` 的 ruleset（第 8 步）。
 
-身分分開後，建議在 `main` 的分支保護加上「合併前需要 1 個 approval」：builder 開的 PR 必須由 human 核准，核准本身也可驗證。
+## 2. 建立 Reviewer App
 
-## 2. 建立 Reviewer GitHub App
-
-GitHub → Settings → Developer settings → GitHub Apps → **New GitHub App**：
+GitHub → Settings → Developer settings → GitHub Apps → **New GitHub App**（https://github.com/settings/apps/new）：
 
 - **GitHub App name**：例如 `chonima666-ai-reviewer`，bot login 會是 `chonima666-ai-reviewer[bot]`
 - **Homepage URL**：任意，例如 repo 網址
-- **Webhook**：取消勾選 Active（不需要）
+- **Webhook**：取消勾選 Active
 - **Repository permissions**（其餘全部維持 No access）：
 
   | 權限 | 設定 |
@@ -35,101 +38,172 @@ GitHub → Settings → Developer settings → GitHub Apps → **New GitHub App*
   | Pull requests | Read and write |
   | Metadata | Read-only（自動） |
 
-  不要給 Contents write、Administration、Secrets、Workflows 或任何 merge／bypass 相關權限。
-  workflow 產生 token 時也只要求 `contents: read`、`pull-requests: write`。
+  不要給 Contents write、Commit statuses、Administration、Secrets、Workflows 或任何 merge／bypass 相關權限。
 - **Where can this GitHub App be installed**：Only on this account
 
-建立後：
-1. 記下頁面上的 **App ID**。
-2. 在頁面底部按 **Generate a private key**，下載 `.pem` 檔。這個檔案不要放進任何 repo。
-3. 左側 **Install App**，安裝到你的帳號，選 **Only select repositories** → `ai-collab-kit`。
+建立後：記下 **App ID** 與 bot login；按 **Generate a private key** 下載 `.pem`（不要放進任何 repo）；
+左側 **Install App** → Only select repositories → `ai-collab-kit`。
 
-## 3. 建立 `ai-review` environment 與 secrets
+## 3. 建立 Merger App
+
+同樣在 **New GitHub App** 建立第二個 App，例如 `chonima666-ai-merger`：
+
+- **Webhook**：取消勾選 Active
+- **Repository permissions**（其餘全部維持 No access）：
+
+  | 權限 | 設定 |
+  | --- | --- |
+  | Contents | Read and write（合併需要） |
+  | Pull requests | Read and write |
+  | Commit statuses | Read and write（發布 `ai-collab/gate`） |
+  | Metadata | Read-only（自動） |
+
+- **Where can this GitHub App be installed**：Only on this account
+
+建立後：記下 **App ID**，下載 private key，安裝到 `ai-collab-kit`。
+
+**為什麼要另一個 App**：Reviewer App 維持只讀程式碼、只寫 review，不能合併。狀態也不能用 workflow 內建的
+GitHub Actions token 發布，因為 PR 可以加入自己的 workflow，以同樣的 GitHub Actions 身分發布同名狀態。
+Merger App 的金鑰只在限定 `main` 的 environment 裡，PR 拿不到，所以 ruleset 可以指定「只認 Merger App 發布的狀態」。
+
+## 4. OpenAI
+
+1. 建立 API key：https://platform.openai.com/api-keys
+2. 確認 API 額度或 billing：https://platform.openai.com/settings/organization/billing/overview
+   ChatGPT 訂閱、API 額度與 API 可用的模型是三件分開的事。
+3. 選模型。`ai-review.sh` 呼叫 `/v1/chat/completions`，帶 system 與 user 訊息；填入前先用同一把 key 確認：
+
+   ```bash
+   curl -sS https://api.openai.com/v1/chat/completions \
+     -H "Authorization: Bearer $OPENAI_API_KEY" -H "Content-Type: application/json" \
+     -d '{"model":"<模型 ID>","messages":[{"role":"system","content":"ping"},{"role":"user","content":"reply OK"}]}'
+   ```
+
+   回覆有 `choices[0].message.content` 才代表可用；401、429 通常是 key 或額度問題。
+
+## 5. 建立 `ai-review` environment
 
 Repo → Settings → Environments → **New environment**，名稱 `ai-review`：
 
 - **Deployment branches and tags**：選 **Selected branches and tags**，只加入 `main`。
-  這樣只有在預設分支上執行的 job 拿得到下列 secret。
-  這個限制和 workflow 的 trigger 相容：`issue_comment` 的 `GITHUB_REF` 永遠是預設分支；
-  `workflow_dispatch` 則是「Use workflow from」選的分支，所以手動執行時要選 `main`，選其他分支會被 environment 擋下（fail closed）。
-  workflow 不使用 `pull_request` 系列 trigger，不會遇到 PR merge ref 被擋的情況。
+  這和 workflow 的 trigger 相容：`issue_comment` 與 `workflow_run` 的 `GITHUB_REF` 永遠是預設分支；
+  `workflow_dispatch` 則是「Use workflow from」選的分支，手動執行時要選 `main`，選其他分支會被 environment 擋下。
 - **Environment secrets**：
 
   | 名稱 | 內容 |
   | --- | --- |
-  | `OPENAI_API_KEY` | OpenAI API key |
-  | `AICK_REVIEWER_PRIVATE_KEY` | 第 2 步 `.pem` 檔的完整內容 |
-  | `AICK_DISCORD_WEBHOOK` | 第 4 步的 webhook URL（選配） |
+  | `OPENAI_API_KEY` | 第 4 步的 API key |
+  | `AICK_REVIEWER_PRIVATE_KEY` | Reviewer App `.pem` 的完整內容 |
+  | `AICK_MERGER_PRIVATE_KEY` | Merger App `.pem` 的完整內容 |
+  | `AICK_DISCORD_WEBHOOK` | 第 6 步的 webhook URL（選配） |
 
 - **Environment variables**：
 
   | 名稱 | 內容 |
   | --- | --- |
-  | `AICK_REVIEWER_APP_ID` | 第 2 步的 App ID |
-  | `AICK_REVIEWER_MODEL` | 要用的 OpenAI 模型名稱 |
+  | `AICK_REVIEWER_APP_ID` | Reviewer App 的 App ID |
+  | `AICK_REVIEWER_MODEL` | 第 4 步確認可用的模型 ID |
+  | `AICK_MERGER_APP_ID` | Merger App 的 App ID |
 
-這些 secret 不要設在 repo 層級，只放在 `ai-review` environment。原因：`ci.yml` 在 `pull_request` 事件上執行的是
-PR 分支上的 workflow 檔，有 Write 權限的 builder 可以在 PR 裡修改它。repo 層級的 secret 會被這種未經審查的 workflow 讀到；
-限定 `main` 的 environment 只給已合併進預設分支的程式碼。
-兩個 environment variables 不是機密，技術上放 repo 層級也能讀到（environment 的值優先），放在這裡只是讓 Reviewer 的設定集中。
+secret 不要設在 repo 層級：`ci.yml` 在 `pull_request` 事件上執行的是 PR 分支上的 workflow 檔，建構者可以在 PR 裡修改它，
+repo 層級的 secret 會被這種未經審查的 workflow 讀到。三個 variable 不是機密，放在這裡只是讓設定集中。
 
-`AICK_REVIEWER_MODEL` 必須支援 Chat Completions（`ai-review.sh` 呼叫 `/v1/chat/completions`，帶 system 與 user 訊息）。
-ChatGPT 訂閱、API 額度與 API 可用的模型是分開的；填入前先用同一把 key 確認：
+## 6. Discord webhook（選配）
 
-```bash
-curl -sS https://api.openai.com/v1/chat/completions \
-  -H "Authorization: Bearer $OPENAI_API_KEY" -H "Content-Type: application/json" \
-  -d '{"model":"<模型 ID>","messages":[{"role":"system","content":"ping"},{"role":"user","content":"reply OK"}]}'
-```
-
-回覆有 `choices[0].message.content` 才代表可用；401、429 通常是 key 或額度問題。
-
-## 4. Discord webhook（選配）
-
-Discord 頻道 → 編輯頻道 → 整合 → Webhook → **新 Webhook** → 複製 Webhook 網址 → 存成第 3 步的 `AICK_DISCORD_WEBHOOK`。
+Discord 頻道 → 編輯頻道 → 整合 → Webhook → **新 Webhook** → 複製網址 → 存成第 5 步的 `AICK_DISCORD_WEBHOOK`。
 Discord 只收通知，不接受任何決定。
 
-## 5. 填寫 `identities`，經 PR 合併
+## 7. 填寫 `project.yaml`
 
 `.ai-collab/project.yaml`（安裝了 kit 的專案；kit repo 自己的也在同一個位置）：
 
 ```yaml
 identities:
-  human: "chonima666"
-  builder: "chonima666-builder"
+  builder: "chonima666"
   reviewer: "chonima666-ai-reviewer[bot]"
+
+policy_gate:
+  human_paths:          # 內建的 .github/、.ai-collab/、CLAUDE.md、AGENTS.md 不必列
+    - "src/auth/*"
+
+auto_merge:
+  required_checks:      # 必須在 PR head 上成功的 GitHub Actions check 名稱
+    - "test"
 ```
 
-這個檔案決定誰說的話算數，所以必須經過 PR，由 human 合併。
+這個檔案在 `.ai-collab/` 下，所以修改它的 PR 一律停在 Human Gate，由 owner 合併。
 
-## 6. 開啟
+## 8. `main` 的 ruleset
 
-Repo → Settings → Secrets and variables → Actions → **Variables** → 新增 **repository variable**
-`AICK_AUTO_REVIEW` = `true`。這個變數必須設在 repo 層級，因為判定狀態的 job 不使用 environment。
+Repo → Settings → Rules → Rulesets → **New ruleset** → New branch ruleset：
 
-測試：Actions → ai-review → **Run workflow**，分支選 `main`，輸入一個已由 builder 貼過 `AI-Review: READY` 的 PR 編號。
-手動執行也只認 `identities.builder` 寫的 `Ready-SHA:`，沒有就判定為 `NO_ACTION`。
+| 設定 | 值 |
+| --- | --- |
+| Enforcement status | Active |
+| Bypass list | 空白 |
+| Target branches | Include default branch |
+| Restrict deletions | 開啟 |
+| Block force pushes | 開啟 |
+| Require a pull request before merging | 開啟；Required approvals 為 0 |
+| Require status checks to pass | 開啟，加入 CI 的每個 check（kit repo 是 `test (ubuntu-latest)`、`test (macos-latest)`），以及 `ai-collab/gate`，來源選 Merger App |
+
+另外在 Settings → General → Pull Requests 確認 **Allow merge commits** 已開啟，自動合併使用 merge commit。
+
+不要開啟「Require branches to be up to date before merging」：開啟後每次 `main` 前進，所有 PR 都要重新合併與審查。
+這個取捨寫在 `REVIEW_PROTOCOL.md` §10.4。
+
+ruleset 生效後，沒有 `ai-collab/gate` 成功狀態的 PR 誰都無法合併，包括 owner。Human Gate 的例外處理見
+`REVIEW_PROTOCOL.md` §10.5。
+
+## 9. 開關
+
+Repo → Settings → Secrets and variables → Actions → **Variables** → **repository variables**：
+
+| 名稱 | 值 | 作用 |
+| --- | --- | --- |
+| `AICK_AUTO_REVIEW` | `true` | 開啟自動審查 |
+| `AICK_AUTO_MERGE` | `true` | 開啟自動交付；只在 `AICK_AUTO_REVIEW` 也是 `true` 時有效 |
+
+兩者必須是 repo 層級，因為判定狀態的 job 不使用 environment。
+
+## 10. 建議的啟用順序與端對端測試
+
+1. 完成第 2～7 步（`project.yaml` 的 PR 由 owner 合併）。
+2. 只打開 `AICK_AUTO_REVIEW`。開一個只改文件的測試 PR，建構者貼 `AI-Review: READY` 與 `Ready-SHA:`。
+   預期：ai-review 的 `state` job 判定 `REVIEW`，`act` job 貼出一則由 Reviewer App 發出、帶 `Risk-Flags:` 的 review。
+3. 設定第 8 步的 ruleset，再打開 `AICK_AUTO_MERGE`。Actions → ai-review → **Run workflow**（分支選 `main`），
+   輸入同一個 PR 的編號。預期：`deliver` job 發布 `ai-collab/gate` = success，Merger App 合併。
+   之後的 PR 不需要手動執行：審查貼出後與 CI 成功後都會自動判定。
+4. 開一個改動 `.github/` 的測試 PR，走完審查。預期：`ai-collab/gate` = failure，Discord 收到 `HUMAN_GATE_REQUIRED`。
+5. **反向測試**：在建構者的 session 嘗試直接合併第 4 步的 PR。預期：GitHub 拒絕。
+   這一步確認建構者使用的憑證無法繞過 ruleset；若沒有被拒絕，自動交付的邊界不成立，請先關閉 `AICK_AUTO_MERGE`。
 
 ## 安裝到其他專案
 
-把 kit repo 的 `.github/workflows/ai-review.yml` 複製到專案的 `.github/workflows/`，再在該專案重做第 2～6 步。
-workflow 會自動使用 `.ai-collab/kit/scripts/` 下的腳本。
+把 kit repo 的 `.github/workflows/ai-review.yml` 複製到專案的 `.github/workflows/`，再在該專案重做第 2～9 步。
+workflow 會自動使用 `.ai-collab/kit/scripts/` 下的腳本。專案的 CI workflow 名稱不是 `ci` 時，要同步修改
+`workflow_run.workflows`，並把 CI 的 check 名稱填入 `auto_merge.required_checks`。
 
 ## 什麼情況會拒絕執行
 
 | 情況 | 結果 |
 | --- | --- |
 | `AICK_AUTO_REVIEW` 不是 `true` | workflow 不執行 |
-| `identities` 有空白、格式不對或兩個相同 | 判定 job 失敗，不呼叫模型 |
-| PR 來自 fork | 不進入需要 secret 的 job；腳本也再擋一次 |
+| `AICK_AUTO_MERGE` 不是 `true` | 只審查，不發布 `ai-collab/gate`，不合併 |
+| `identities` 有空白、兩者相同，或 `reviewer` 不是 `<app-slug>[bot]` | 判定 job 失敗，不呼叫模型 |
+| PR 來自 fork | 不進入需要 secret 的步驟；腳本也再擋一次 |
 | 缺少 `OPENAI_API_KEY`、`AICK_REVIEWER_MODEL` 或 Reviewer App 金鑰 | `REVIEW_FAILED`，不呼叫模型、不貼文 |
-| 模型 API 錯誤或逾時（`AICK_MODEL_TIMEOUT`，預設 600 秒） | `REVIEW_FAILED`，不貼文 |
-| 模型輸出不符合格式 | `REVIEW_FAILED`，不貼文 |
+| 模型 API 錯誤、逾時（`AICK_MODEL_TIMEOUT`，預設 600 秒）或輸出不符合格式 | `REVIEW_FAILED`，不貼文 |
 | Reviewer App 貼文失敗，或貼文者不是 `identities.reviewer` | `REVIEW_FAILED`，workflow 失敗 |
+| `policy_gate` 或 `auto_merge.required_checks` 缺少、讀不懂或是空的 | 交付 job 失敗，不發布狀態、不合併 |
+| 缺少 Merger App 金鑰、狀態貼不出去，或 GitHub 拒絕合併 | `AUTO_MERGE_FAILED`，不合併 |
 
 ## 剩下的風險
 
-- human 帳號是 repo admin，技術上可以刪除 Reviewer App 的 review 來改變輪數。LG-06a 禁止任何人以此重設計數；
-  所以 builder 帳號不能有 admin 權限。
-- 模型看得到 PR 的內容，PR 內容可能試圖影響模型的結論（prompt injection）。模型只能決定一則 review 的內容，
-  改不了輪數、身分或狀態欄位；結論仍由人決定是否採納。
+- **建構者與 owner 共用帳號**：owner 在 GitHub 上能做的事，建構者的憑證技術上也可能做得到，例如修改 ruleset。
+  實際能力取決於 claude.ai 連結 GitHub 時授予的權限。第 10 步的反向測試用來確認這一點；ruleset 的 bypass 名單必須保持空白。
+- **Prompt injection**：模型看得到 PR 的內容，PR 可能試圖讓模型回覆 `VERIFIED` 與 `Risk-Flags: none`。
+  模型無法放行受保護的路徑，也改不了輪數、身分或 CI 結果；但一般路徑上的 PR 若同時騙過模型與 CI，就會自動合併。
+  這是自動交付接受的風險，用 `policy_gate.human_paths` 把敏感目錄列全可以縮小它。
+- **路徑規則只涵蓋列出的路徑**：專案必須把認證、migration、基礎設施、計費等目錄列進 `policy_gate.human_paths`。
+- **Merger App 有 Contents write**：它的金鑰只在限定 `main` 的 environment 中，只由預設分支上的腳本使用。

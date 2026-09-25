@@ -55,12 +55,30 @@ review:
 
 # Loop Guard（REVIEW_PROTOCOL §9）。只能由 owner 經 PR 修改；AI 不得自行修改、繞過、重設或延長（LG-06a）。
 loop_guard:
-  max_review_rounds: 3                  # 第 1～3 輪可審；之後每一輪都需要 Human 的 ALLOW_EXTRA_ROUND
-  require_new_sha_for_rereview: true    # 同一個 Ready-SHA 不重複審查；v0.1.1 只支援 true
+  max_review_rounds: 3                  # 第 1～3 輪可審；之後停在 HUMAN_GATE_REQUIRED，由 owner 處理
+  require_new_sha_for_rereview: true    # 同一個 Ready-SHA 不重複審查；只支援 true
 
-# 自動審查的身分（REVIEW_PROTOCOL §9.5、§9.6）。三個不同的 GitHub login；有任一個空白或兩個相同時，
-# 自動審查拒絕執行。不使用自動審查可以留空。設定方式見 ai-collab-kit 的 docs/AUTOMATION.md。
+# 以下三個區塊只在使用自動審查與自動交付時需要，設定方式見 ai-collab-kit 的 docs/AUTOMATION.md。
+
+# 自動審查的身分（REVIEW_PROTOCOL §8.1）。兩個不同的 GitHub login；任一個空白時自動審查拒絕執行。
 identities:
-  human: ""       # 人：合併與 Human-Decision
-  builder: ""     # 建構者 AI 發言所用的帳號或 App
+  builder: ""     # 建構者 AI 發言所用的帳號，例如 owner 自己的帳號
   reviewer: ""    # Reviewer App 的 bot login，例如 my-reviewer[bot]
+
+# Policy Gate（REVIEW_PROTOCOL §10.1）：變更這些路徑一律交給 owner，不自動合併。
+# .github/、.ai-collab/、CLAUDE.md、AGENTS.md 內建一定算，不必列。`*` 也會跨目錄比對。
+# 例如：
+#   human_paths:
+#     - "src/auth/*"
+#     - "migrations/*"
+#     - "infra/*"
+#     - "billing/*"
+policy_gate:
+  human_paths: []
+
+# 自動合併前，PR head 上必須成功的 GitHub Actions check 名稱（REVIEW_PROTOCOL §10）。
+# 留空時自動合併拒絕執行。例如：
+#   required_checks:
+#     - "test"
+auto_merge:
+  required_checks: []

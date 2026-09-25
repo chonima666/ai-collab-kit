@@ -1,15 +1,24 @@
 #!/usr/bin/env bash
 # Test double for curl: answers GitHub, OpenAI and Discord requests from files in $FAKE_DIR and
-# logs one line per request to $FAKE_DIR/calls. Only the options the kit's scripts use are known.
-out="" fmt="" url="" data="" method=GET fail=no
+# logs one line per request to $FAKE_DIR/calls, plus "<kind> <token>" for every request that
+# carries a token to $FAKE_DIR/auth.log. Only the options the kit's scripts use are known.
+out="" fmt="" url="" data="" method=GET explicit="" fail=no token=""
 while [ $# -gt 0 ]; do
   case "$1" in
     -o) out="$2"; shift 2 ;;
     -w) fmt="$2"; shift 2 ;;
+    -X) method="$2"; explicit=yes; shift 2 ;;
     -K) url="$(sed -n 's/^url = "\(.*\)"$/\1/p' "$2")"; shift 2 ;;
-    -H|--connect-timeout|--max-time) shift 2 ;;
+    -H)
+      case "$2" in
+        @*) header="$(cat "${2#@}")" ;;
+        *) header="$2" ;;
+      esac
+      case "$header" in "Authorization: Bearer "*) token="${header#Authorization: Bearer }" ;; esac
+      shift 2 ;;
+    --connect-timeout|--max-time) shift 2 ;;
     --data-binary)
-      method=POST
+      [ -n "$explicit" ] || method=POST
       if [ "$2" = @- ]; then data="$(cat)"; else data="$(cat "${2#@}")"; fi
       shift 2 ;;
     http*) url="$1"; shift ;;
@@ -21,6 +30,7 @@ done
 F="$FAKE_DIR" status=200 body=""
 page="${url##*page=}"
 case "$method $url" in
+  "GET "*/commits/*/check-runs*) kind=get_checks; body="$(cat "$F/check_runs.json")" ;;
   "GET "*/pulls/*/reviews*) kind=get_reviews; if [ "$page" = 1 ]; then body="$(cat "$F/reviews.json")"; else body='[]'; fi ;;
   "GET "*/issues/*/comments*) kind=get_comments; if [ "$page" = 1 ]; then body="$(cat "$F/comments.json")"; else body='[]'; fi ;;
   "GET "*/pulls/*) kind=get_pr; body="$(cat "$F/pr.json")" ;;
@@ -29,6 +39,16 @@ case "$method $url" in
     status="$(cat "$F/post_status" 2>/dev/null || echo 200)"
     body="$(cat "$F/post_response" 2>/dev/null || echo '{"user":{"login":"rev-app[bot]"}}')"
     printf '%s' "$data" > "$F/posted.json" ;;
+  "POST "*/statuses/*)
+    kind=post_status
+    status="$(cat "$F/status_http" 2>/dev/null || echo 201)"
+    body='{}'
+    printf '%s' "$data" > "$F/status.json" ;;
+  "PUT "*/pulls/*/merge)
+    kind=merge
+    status="$(cat "$F/merge_status" 2>/dev/null || echo 200)"
+    body="$(cat "$F/merge_response" 2>/dev/null || echo '{"merged":true}')"
+    printf '%s' "$data" > "$F/merge.json" ;;
   "POST "*/chat/completions)
     kind=model
     printf '%s' "$data" > "$F/model_request.json"
@@ -39,6 +59,7 @@ case "$method $url" in
   *) kind="unknown $method $url" ;;
 esac
 echo "$kind" >> "$F/calls"
+[ -z "$token" ] || echo "$kind $token" >> "$F/auth.log"
 if [ -n "$out" ]; then printf '%s' "$body" > "$out"; else printf '%s' "$body"; fi
 case "$fmt" in *http_code*) printf '%s' "$status" ;; esac
 if [ "$fail" = yes ] && [ "$status" -ge 400 ]; then exit 22; fi

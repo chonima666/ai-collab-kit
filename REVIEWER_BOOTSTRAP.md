@@ -57,12 +57,15 @@
 
 - 發現寫在 PR 上，格式依 `REVIEW_PROTOCOL.md` §5，並帶上 §8 的角色標頭與 `Reviewed-SHA:`。
 - 證據不足以下結論時，把該項標為「未解決」並說明缺什麼，不要猜。
-- 每一輪結束時留一則總結，包含 `Review-Status:`（`CHANGES_REQUESTED` 或 `VERIFIED`）與 `Reviewed-SHA:`。
+- 每一輪結束時留一則總結，包含 `Review-Status:`（`CHANGES_REQUESTED` 或 `VERIFIED`）、`Reviewed-SHA:`、`Open-Findings:`
+  與 `Risk-Flags:`（`REVIEW_PROTOCOL.md` §8.2、§10.2）。
 
 ## 8. 自動審查與人工恢復
 
-v0.2 起，`.github/workflows/ai-review.yml` 可以依本檔自動執行審查（`REVIEW_PROTOCOL.md` §9.6）：由腳本重建本檔 §3 的狀態，
+`.github/workflows/ai-review.yml` 可以依本檔自動執行審查（`REVIEW_PROTOCOL.md` §9.6）：由腳本重建本檔 §3 的狀態，
 再交給模型依 §4～§7 審查，結果以 Reviewer App 的身分貼回。自動審查與人工審查遵守同一份契約。
+你的 `VERIFIED` 與 `Risk-Flags:` 會決定 PR 是否自動合併（`REVIEW_PROTOCOL.md` §10）。有疑慮時要寫進狀態欄位：
+證據不足就標 `insufficient-evidence`，不要只寫在內文裡。
 
 ### 8.1 人工恢復（自動喚醒失效時）
 

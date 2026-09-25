@@ -8,11 +8,14 @@
 # Exit codes: 0 comment printed, 2 invalid input or configuration, 3 model output rejected,
 # 4 model API failure or timeout. Nothing is printed to stdout unless the comment is valid.
 # The script, not the model, writes the role header and Reviewed-SHA, and it rejects output
-# whose status block breaks REVIEW_PROTOCOL §9 (exit 3), so a model cannot misreport the round.
+# whose status block breaks REVIEW_PROTOCOL §9.6 (exit 3), so a model cannot misreport the round.
+# When the diff had to be truncated the script adds the insufficient-evidence risk flag itself.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KIT="$(cd "$HERE/.." && pwd)"
+# shellcheck source=lib.sh
+. "$HERE/lib.sh"
 
 usage_error() { echo "$*" >&2; exit 2; }
 model_error() { echo "model output rejected: $*" >&2; exit 3; }
@@ -83,13 +86,31 @@ This is Loop Guard review round $round of Ready-SHA $ready.
   problem, the reasoning or reproduction, the impact, a suggested fix, and 已證實 or 推論.
 - Write in the same language as the pull request.
 
-End your reply with exactly these two lines and nothing after them:
+End your reply with exactly these three lines and nothing after them:
 Review-Status: VERIFIED or CHANGES_REQUESTED
 Open-Findings: none, or the comma-separated IDs of every finding still open
+Risk-Flags: none, or the comma-separated flags below that apply to this pull request
 
 VERIFIED requires Open-Findings: none. CHANGES_REQUESTED requires at least one open ID.
-Do not write Reviewed-SHA, Ready-SHA, AI-Review, Human-Decision or a role header; the
-system adds what is needed.
+
+Risk flags decide whether the owner must look at the pull request before it is merged: any flag
+stops automatic merge, even with VERIFIED. They describe what the change touches, not whether it
+is correct. Set every flag that applies; when you are unsure whether one applies, set it.
+- auth: authentication or authorization logic
+- permissions: the identity or permission model, roles, access control
+- secrets: secrets, API keys, tokens, credentials, GitHub App permissions
+- ci-boundary: the CI or GitHub Actions trusted execution boundary, workflow permissions, secret exposure
+- branch-protection: branch protection or rulesets
+- merge-policy: merge or auto-merge policy
+- release: release or deployment policy
+- review-system: the Reviewer, the orchestrator, the Policy Gate or the Loop Guard themselves
+- data-migration: destructive database or data migrations
+- infrastructure: production infrastructure
+- billing: billing or payments
+- breaking-change: a breaking change for users or callers
+- insufficient-evidence: you could not see or verify enough to be confident in your conclusion
+
+Do not write Reviewed-SHA, Ready-SHA, AI-Review or a role header; the system adds what is needed.
 $rules
 EOF_SYSTEM
 
@@ -139,16 +160,21 @@ fi
 [ -z "$raw_out" ] || cp "$work/answer" "$raw_out"
 [ -s "$work/answer" ] || model_error "empty reply"
 
-# The reply must end with exactly one status block: Review-Status then Open-Findings as its last
-# two non-empty lines, with neither field anywhere else. Anything else is rejected, not repaired.
+# The reply must end with exactly one status block: Review-Status, Open-Findings and Risk-Flags as
+# its last three non-empty lines, with none of them anywhere else. Anything else is rejected, not
+# repaired.
 answer="$(tr -d '\r' < "$work/answer")"
 count_field() { printf '%s\n' "$answer" | grep -cE "^[[:space:]]*$1:" || true; }
-[ "$(count_field Review-Status)" = 1 ] || model_error "Review-Status must appear exactly once"
-[ "$(count_field Open-Findings)" = 1 ] || model_error "Open-Findings must appear exactly once"
-tail2="$(printf '%s\n' "$answer" | sed '/^[[:space:]]*$/d' | tail -n 2)"
-status_line="$(printf '%s\n' "$tail2" | sed -n 1p)" open_line_in="$(printf '%s\n' "$tail2" | sed -n 2p)"
-case "$status_line" in Review-Status:*) ;; *) model_error "the reply must end with Review-Status then Open-Findings" ;; esac
-case "$open_line_in" in Open-Findings:*) ;; *) model_error "the reply must end with Review-Status then Open-Findings" ;; esac
+for field in Review-Status Open-Findings Risk-Flags; do
+  [ "$(count_field "$field")" = 1 ] || model_error "$field must appear exactly once"
+done
+tail3="$(printf '%s\n' "$answer" | sed '/^[[:space:]]*$/d' | tail -n 3)"
+status_line="$(printf '%s\n' "$tail3" | sed -n 1p)" open_line_in="$(printf '%s\n' "$tail3" | sed -n 2p)"
+flags_line="$(printf '%s\n' "$tail3" | sed -n 3p)"
+case "$status_line/$open_line_in/$flags_line" in
+  Review-Status:*/Open-Findings:*/Risk-Flags:*) ;;
+  *) model_error "the reply must end with Review-Status, Open-Findings, then Risk-Flags" ;;
+esac
 field_value() { printf '%s\n' "$1" | sed "s/^[^:]*:[[:space:]]*//; s/[[:space:]]*\$//"; }
 status="$(field_value "$status_line")" open="$(field_value "$open_line_in")"
 case "$status" in
@@ -165,10 +191,20 @@ fi
 [ "$status" = VERIFIED ] && [ -n "$ids" ] && model_error "VERIFIED with open findings: $open"
 [ "$status" = CHANGES_REQUESTED ] && [ -z "$ids" ] && model_error "CHANGES_REQUESTED without open findings"
 open_line="$( [ -n "$ids" ] && printf '%s\n' "$ids" | paste -sd, - | sed 's/,/, /g' || echo none)"
+flags="$(field_value "$flags_line" | tr ',' ' ' | tr -s ' ' '\n' | sed '/^$/d')"
+[ "$(printf '%s\n' "$flags" | tr '[:upper:]' '[:lower:]')" != none ] || flags=""
+for flag in $flags; do
+  printf ' %s ' "${AICK_RISK_FLAGS[*]}" | grep -qF " $flag " || model_error "unknown risk flag: $flag"
+done
+# A review of a truncated diff never counts as full evidence, whatever the model concluded.
+[ "$truncated" = no ] || flags="$flags
+insufficient-evidence"
+flags_out="$(printf '%s\n' "$flags" | sed '/^$/d' | awk '!seen[$0]++' | paste -sd, - | sed 's/,/, /g')"
+[ -n "$flags_out" ] || flags_out=none
 
 # Protocol lines and role headers written by the model are dropped, so only this block counts.
 body="$(printf '%s\n' "$answer" \
-  | grep -vE '^(Review-Status|Reviewed-SHA|Open-Findings|Ready-SHA|AI-Review|Human-Decision|Gate-Ready-SHA):' \
+  | grep -vE '^(Review-Status|Reviewed-SHA|Open-Findings|Risk-Flags|Ready-SHA|AI-Review):' \
   | grep -vE '^\[AI-' )"
 cat <<EOF_COMMENT
 [AI-Reviewer: $model via ai-collab-kit]
@@ -181,4 +217,5 @@ $body
 Review-Status: $status
 Reviewed-SHA: $ready
 Open-Findings: $open_line
+Risk-Flags: $flags_out
 EOF_COMMENT

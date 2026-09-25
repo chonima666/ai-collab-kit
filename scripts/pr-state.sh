@@ -5,10 +5,14 @@
 #       [--save-dir <dir>] [--root <project-root>]
 # The first form reads the GitHub REST API with $GITHUB_TOKEN (read access is enough); the
 # second reads saved API responses. Records count only when their author is the identity that
-# owns them in project.yaml (REVIEW_PROTOCOL §9.6), so the three identities must be set and
-# distinct. The PR description never counts as review state. Output and exit codes follow
-# verify.sh review-state, plus pr_number=, pr_base=, pr_head= and same_repo=. With --save-dir,
-# pr.json and timeline.json (comments and reviews, oldest first) are kept for the next step.
+# owns them in project.yaml (REVIEW_PROTOCOL §8.1): READY only from identities.builder, review
+# records only from identities.reviewer, which must be a GitHub App bot login different from the
+# builder. The PR description never counts as review state. Output and exit codes follow
+# verify.sh review-state, plus the pull request context the Policy Gate reads: pr_number=,
+# pr_base=, pr_head=, pr_base_ref=, default_branch=, pr_state=, pr_draft=, same_repo=, and the
+# Reviewer's latest record at the head, head_review= (VERIFIED, CHANGES_REQUESTED or none) and
+# head_risk_flags=. With --save-dir, pr.json and timeline.json (comments and reviews, oldest
+# first) are kept for the next step.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -38,20 +42,22 @@ ROOT="$(cd "$ROOT" && pwd)" || exit 2
 profile="$ROOT/.ai-collab/project.yaml"
 [ -f "$profile" ] || usage_error "$profile missing"
 
-# Automation trusts authorship, so a shared identity would let one party speak for another.
+# Automation trusts authorship. The Builder may use the owner's account, but review records must
+# come from an identity the Builder cannot speak as: a GitHub App, whose login ends in [bot].
 # GitHub logins are case-insensitive, so they are compared in lower case.
 lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
-human="$(lower "$(aick_identity "$profile" human)")" builder="$(lower "$(aick_identity "$profile" builder)")"
-reviewer="$(lower "$(aick_identity "$profile" reviewer)")"
-for pair in "human=$human" "builder=$builder" "reviewer=$reviewer"; do
-  value="${pair#*=}"
-  case "$value" in
-    ""|REPLACE_*|*[!A-Za-z0-9_.[\]-]*) usage_error "project.yaml: identities.${pair%%=*} is not set to a GitHub login; automation stays off (REVIEW_PROTOCOL §9.5)" ;;
+builder="$(lower "$(aick_identity "$profile" builder)")" reviewer="$(lower "$(aick_identity "$profile" reviewer)")"
+for pair in "builder=$builder" "reviewer=$reviewer"; do
+  case "${pair#*=}" in
+    ""|REPLACE_*|*[!A-Za-z0-9_.[\]-]*) usage_error "project.yaml: identities.${pair%%=*} is not set to a GitHub login; automation stays off (REVIEW_PROTOCOL §8.1)" ;;
   esac
 done
-if [ "$human" = "$builder" ] || [ "$human" = "$reviewer" ] || [ "$builder" = "$reviewer" ]; then
-  usage_error "project.yaml: identities must be three different GitHub logins; automation stays off (REVIEW_PROTOCOL §9.5)"
-fi
+case "$reviewer" in
+  ?*"[bot]") ;;
+  *) usage_error "project.yaml: identities.reviewer must be the Reviewer GitHub App's bot login (<app-slug>[bot]); automation stays off (REVIEW_PROTOCOL §8.1)" ;;
+esac
+[ "$builder" != "$reviewer" ] \
+  || usage_error "project.yaml: identities.builder and identities.reviewer must be different; automation stays off (REVIEW_PROTOCOL §8.1)"
 
 if [ -n "$repo$pr" ]; then
   [ -n "$repo" ] && [ -n "$pr" ] || usage_error "--repo and --pr go together"
@@ -99,8 +105,9 @@ fi
 
 # Each record is read from its owner's comments only. When a key appears more than once in one
 # comment, the last line wins, matching how a reviewer's summary ends with the status block.
-records="$(printf '%s\n' "$timeline" | jq -r --arg human "$human" --arg builder "$builder" \
-    --arg reviewer "$reviewer" --slurpfile pr "$pr_file" '
+known_flags="$(printf '%s\n' "${AICK_RISK_FLAGS[@]}" | jq -R . | jq -s .)"
+records="$(printf '%s\n' "$timeline" | jq -r --arg builder "$builder" --arg reviewer "$reviewer" \
+    --argjson known "$known_flags" --slurpfile pr "$pr_file" '
   def lines: (. // "") | split("\n") | map(sub("\r$"; ""));
   def field($k): [lines[] | capture("^" + $k + ":[ \t]*(?<v>.*?)[ \t]*$") | .v] | last;
   def sha: select(. != null and test("^[0-9a-f]{40}$"));
@@ -109,36 +116,45 @@ records="$(printf '%s\n' "$timeline" | jq -r --arg human "$human" --arg builder 
       + [ .[] | select((.login | ascii_downcase) == $builder) | .body ]
       | map(select(field("AI-Review") == "READY") | field("Ready-SHA") | sha) | last // "" ) as $ready
   # Every Reviewer comment or review that carries Review-Status is a round record and must be
-  # complete: a missing or inconsistent field is an error, never read as "no open findings".
-  | [ .[] | select((.login | ascii_downcase) == $reviewer) | .body | select(field("Review-Status") != null)
+  # complete: a missing or inconsistent field is an error, never read as "no open findings" or
+  # "no risk".
+  | def list($v): if ($v | ascii_downcase) == "none" then [] else [$v | splits("[,[:space:]]+")] | map(select(. != "")) end;
+    [ .[] | select((.login | ascii_downcase) == $reviewer) | .body | select(field("Review-Status") != null)
       | field("Review-Status") as $st | field("Reviewed-SHA") as $s | field("Open-Findings") as $o
-      | (if $o == null or ($o | ascii_downcase) == "none" then []
-         else [$o | splits("[,[:space:]]+")] | map(select(. != "")) end) as $ids
+      | field("Risk-Flags") as $r
+      | (if $o == null then [] else list($o) end) as $ids
+      | (if $r == null then [] else list($r) end) as $flags
       | if ($st != "VERIFIED" and $st != "CHANGES_REQUESTED") then {bad: "Review-Status \($st)"}
         elif ($s == null or ($s | test("^[0-9a-f]{40}$") | not)) then {bad: "Reviewed-SHA \($s)"}
         elif $o == null then {bad: "no Open-Findings at \($s)"}
         elif ($ids | map(test("^[A-Za-z0-9][A-Za-z0-9._-]*$")) | all | not) then {bad: "Open-Findings \($o) at \($s)"}
         elif $st == "VERIFIED" and ($ids | length) > 0 then {bad: "VERIFIED with open findings at \($s)"}
         elif $st == "CHANGES_REQUESTED" and ($ids | length) == 0 then {bad: "CHANGES_REQUESTED without open findings at \($s)"}
-        else {rec: ($s + (if ($ids | length) == 0 then "" else ":" + ($ids | join(",")) end))} end ] as $records
+        elif $r == null then {bad: "no Risk-Flags at \($s)"}
+        elif ($flags | map(. as $f | $known | index($f) != null) | all | not) then {bad: "Risk-Flags \($r) at \($s)"}
+        else {rec: ($s + (if ($ids | length) == 0 then "" else ":" + ($ids | join(",")) end)),
+              sha: $s, status: $st, flags: ($flags | join(","))} end ] as $records
   | [ $records[] | .rec // empty ] as $reviewed
-  | [ .[] | select((.login | ascii_downcase) == $human) | select(.body | field("Human-Decision") == "ALLOW_EXTRA_ROUND") ]
-      | length as $extra
-  | "ready=\($ready)", "extra=\($extra)", "number=\($p.number)", "base=\($p.base.sha)",
-    "head=\($p.head.sha)",
+  # Only the latest record at the current head can allow delivery; an older SHA never does.
+  | ([ $records[] | select(.rec != null and .sha == $p.head.sha) ] | last) as $at_head
+  | "ready=\($ready)", "number=\($p.number)", "base=\($p.base.sha)", "head=\($p.head.sha)",
+    "base_ref=\($p.base.ref)", "default_branch=\($p.base.repo.default_branch)",
+    "state=\(if $p.merged == true then "merged" else $p.state end)", "draft=\($p.draft == true)",
     "same_repo=\(if $p.head.repo.full_name != null and $p.head.repo.full_name == $p.base.repo.full_name then "true" else "false" end)",
+    "head_review=\($at_head.status // "none")", "head_risk_flags=\($at_head.flags // "")",
     ($reviewed[] | "reviewed=\(.)"), ($records[] | .bad // empty | "invalid=\(.)")
 ')" || usage_error "cannot parse $pr_file"
 value() { printf '%s\n' "$records" | sed -n "s/^$1=//p"; }
 invalid="$(value invalid)"
 if [ -n "$invalid" ]; then
   printf '%s\n' "$invalid" | sed 's/^/invalid Reviewer record: /' >&2
-  usage_error "the Loop Guard state cannot be rebuilt until the Reviewer records are complete (REVIEW_PROTOCOL §9.2)"
+  usage_error "the Loop Guard state cannot be rebuilt until the Reviewer records are complete (REVIEW_PROTOCOL §9.6)"
 fi
 ready="$(value ready)" head="$(value head)"
 
 context() {
-  printf 'pr_number=%s\npr_base=%s\npr_head=%s\nsame_repo=%s\n' "$(value number)" "$(value base)" "$head" "$(value same_repo)"
+  for key in number base head base_ref state draft; do printf 'pr_%s=%s\n' "$key" "$(value "$key")"; done
+  for key in default_branch same_repo head_review head_risk_flags; do printf '%s=%s\n' "$key" "$(value "$key")"; done
 }
 no_action() {
   printf 'decision=NO_ACTION\nreason=%s\nready=%s\n' "$1" "$ready"
@@ -149,7 +165,7 @@ no_action() {
 # A READY for an older commit does not cover what was pushed after it (LG-01).
 [ "$ready" = "$head" ] || no_action ready_not_head
 
-set -- --ready "$ready" --human-extra-rounds "$(value extra)"
+set -- --ready "$ready"
 while IFS= read -r rec; do
   [ -n "$rec" ] && set -- "$@" --reviewed "$rec"
 done <<EOF_RECORDS

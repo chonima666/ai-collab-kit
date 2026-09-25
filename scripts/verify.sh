@@ -4,7 +4,7 @@
 #   .ai-collab/kit/scripts/verify.sh [--root <project-root>]
 #   .ai-collab/kit/scripts/verify.sh pr --validated <sha> [--head <ref>] [--root <project-root>]
 #   .ai-collab/kit/scripts/verify.sh review-state --ready <sha> [--reviewed <sha>[:<id>,...]]...
-#       [--human-extra-rounds <n>] [--root <project-root>]
+#       [--root <project-root>]
 # review-state never contacts GitHub: the caller passes the state it has already read.
 set -uo pipefail
 
@@ -14,7 +14,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 usage_error() { echo "$*" >&2; exit 2; }
 
-mode=check validated="" head="" ROOT="" ready="" reviewed="" extra=""
+mode=check validated="" head="" ROOT="" ready="" reviewed=""
 case "${1:-}" in
   pr) mode=pr; shift ;;
   review-state) mode=review; shift ;;
@@ -28,7 +28,6 @@ while [ $# -gt 0 ]; do
     --ready) [ -z "$ready" ] || usage_error "--ready given more than once"; ready="$2" ;;
     --reviewed) reviewed="$reviewed$2
 " ;;
-    --human-extra-rounds) [ -z "$extra" ] || usage_error "--human-extra-rounds given more than once"; extra="$2" ;;
     *) usage_error "unknown argument: $1" ;;
   esac
   shift 2
@@ -36,7 +35,7 @@ done
 if [ "$mode" = review ]; then
   [ -z "$validated$head" ] || usage_error "--validated and --head are not review-state options"
 else
-  [ -z "$ready$reviewed$extra" ] || usage_error "--ready, --reviewed and --human-extra-rounds need review-state mode"
+  [ -z "$ready$reviewed" ] || usage_error "--ready and --reviewed need review-state mode"
 fi
 [ -n "$head" ] || head=HEAD
 [ -n "$ROOT" ] || ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
@@ -63,9 +62,6 @@ if [ "$mode" = review ]; then
   sha_re='^[0-9a-f]{40}$'
   [ -n "$ready" ] || usage_error "review-state requires --ready <40-character sha>"
   printf '%s\n' "$ready" | grep -qE "$sha_re" || usage_error "invalid --ready sha: $ready"
-  [ -n "$extra" ] || extra=0
-  printf '%s\n' "$extra" | grep -qE '^[0-9]{1,3}$' || usage_error "invalid --human-extra-rounds: $extra"
-  extra=$((10#$extra))
   # Each --reviewed record is one Reviewed-SHA that carries a Review-Status, in the order posted,
   # with the finding IDs the reviewer still left open at that SHA.
   records=""
@@ -118,9 +114,9 @@ EOF_REVIEWED
   get() { printf '%s\n' "$state" | sed -n "s/^$1=//p"; }
   rounds="$(get rounds)" last="$(get last)" carry="$(get carry)"
   dispute_round="$(get dispute_round)" disputed="$(get disputed)"
-  base="$max"
-  [ "$dispute_round" -gt 0 ] && [ "$dispute_round" -lt "$base" ] && base="$dispute_round"
-  limit=$((base + extra))
+  # Nothing extends the limit: a comment cannot prove it came from the owner (REVIEW_PROTOCOL §9.4).
+  limit="$max"
+  [ "$dispute_round" -gt 0 ] && [ "$dispute_round" -lt "$limit" ] && limit="$dispute_round"
 
   if [ "$(get seen)" = 1 ]; then
     decision=NO_ACTION reason=already_reviewed code=10
@@ -128,7 +124,7 @@ EOF_REVIEWED
     # reason is a single value. When both limits bind, the dispute wins: it names the findings the
     # Human has to decide on, and rounds/limit still show that the round limit is reached.
     decision=HUMAN_GATE_REQUIRED code=20 reason=max_review_rounds
-    if [ "$dispute_round" -gt 0 ] && [ "$rounds" -ge $((dispute_round + extra)) ]; then
+    if [ "$dispute_round" -gt 0 ] && [ "$rounds" -ge "$dispute_round" ]; then
       reason=repeated_unresolved_finding
     fi
   else
