@@ -173,6 +173,8 @@ Repo → Settings → Secrets and variables → Actions → **Variables** → **
 1. 完成第 2～7 步（`project.yaml` 的 PR 由 owner 合併）。
 2. 只打開 `AICK_AUTO_REVIEW`。開一個只改文件的測試 PR，建構者貼 `AI-Review: READY` 與 `Ready-SHA:`。
    預期：ai-review 的 `state` job 判定 `REVIEW`，`act` job 貼出一則由 Reviewer App 發出、帶 `Risk-Flags:` 的 review。
+   審查者的 prompt 會帶有 repository、PR 與 Ready-SHA 上 required checks 的可信資料（`REVIEW_PROTOCOL.md` §9.6），
+   這些資料由 workflow 內建的唯讀 token（`checks: read`）讀取，不需要額外設定。CI 還在跑不會讓審查標 `insufficient-evidence`。
 3. 設定第 8 步的 ruleset，再打開 `AICK_AUTO_MERGE`。Actions → ai-review → **Run workflow**（分支選 `main`），
    輸入同一個 PR 的編號。預期：`deliver` job 發布 `ai-collab/gate` = success，Merger App 合併。
    之後的 PR 不需要手動執行：審查貼出後與 CI 成功後都會自動判定。

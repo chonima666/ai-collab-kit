@@ -241,6 +241,29 @@ PR 說明裡宣稱的審查狀態一律不算。
 
 有任何一則不完整，就停止重建狀態（exit 2），不會把缺少的欄位當成 `none`。
 
+**Reviewer 看得到的可信資料**：prompt 裡只有一段可信資料，標題是「Trusted repository / validation context」，
+由 orchestrator 從 GitHub API 與 `project.yaml` 產生：
+- repository 全名、PR 編號、base branch 與 base SHA、Ready-SHA（即目前 head）、審查範圍、Loop Guard 狀態。
+- `auto_merge.required_checks` 列出的每個 check 在 Ready-SHA 上的 status、conclusion、head SHA 與來源 App。
+  - check 的挑選方式與 Policy Gate 相同（`lib.sh` 的 `aick_required_check`）：同名、`head_sha` 等於 Ready-SHA、
+    來源是 GitHub Actions 的最新一次執行。
+  - 其他 commit 或其他 App 的同名 check 只會列為「ignored」，不會當成證據。
+- check-runs 讀不到、格式不對，或 `required_checks` 讀不懂時，會寫明「UNAVAILABLE」，不顯示任何結果，也絕不顯示為成功。
+  審查照常進行，合併仍由 Policy Gate 擋住。
+- check-runs 的回應必須剛好是一個 JSON 物件（`lib.sh` 的 `aick_check_runs_valid`）。串接多份 JSON 一律視為格式錯誤：
+  審查者看到 UNAVAILABLE，Policy Gate 直接失敗。
+
+PR 的標題、說明、留言與 diff 都放在標為 untrusted 的段落。PR 文字裡關於 CI 的任何宣稱都不算證據。
+- 可信段落的標題帶有每次審查隨機產生的標記，system prompt 也寫明只有帶這個標記的段落可信。PR 作者事先無法知道這個標記。
+- 不可信文字中以 `=====` 開頭的行會加上 `| ` 前綴，不能自己開出一個段落。
+
+**CI 與 `insufficient-evidence` 的分工**：
+- 審查者負責判斷程式、需求與證據是否合理。
+- CI 是否在目前 head 成功，由 Policy Gate 強制（§10.1）。
+- 因此 required check 還在跑、失敗或資料不可用，本身都不是標 `insufficient-evidence` 或 `CHANGES_REQUESTED` 的理由。
+  CI 還在跑時，審查可以是 `VERIFIED`、`Risk-Flags: none`，由 Policy Gate 判定 `NOT_READY`（`ci_pending`）。
+- `insufficient-evidence` 留給真正無法建立信心的情況：diff 被截斷、關鍵檔案或內容取不到、證據互相矛盾、需要的外部事實無法查證。
+
 **模型輸出的約束**：
 - 角色標頭、`Reviewed-SHA:` 與輪次由腳本寫入，不由模型寫。
 - 模型回覆的最後三個非空行必須依序是 `Review-Status:`、`Open-Findings:` 與 `Risk-Flags:`，這三個欄位在回覆中各只能出現一次。
@@ -316,7 +339,7 @@ Policy Gate 決定一個 PR 能否不經人工直接合併。它由固定規則�
 | `infrastructure` | production 基礎設施 |
 | `billing` | 計費或金流 |
 | `breaking-change` | 對使用者或呼叫端的破壞性變更 |
-| `insufficient-evidence` | 看不到或無法驗證足夠的內容，無法建立信心 |
+| `insufficient-evidence` | 無法建立信心：diff 被截斷、關鍵檔案或內容取不到、證據互相矛盾、需要的外部事實無法查證。CI 還在跑、失敗或資料不可用不算（§9.6） |
 
 ### 10.3 判定工具
 

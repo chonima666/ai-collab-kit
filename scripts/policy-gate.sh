@@ -61,7 +61,7 @@ required="$(read_list auto_merge required_checks)" || exit 2
 state() { sed -n "s/^$1=//p" "$state_file" | tail -n 1; }
 head="$(state pr_head)"
 printf '%s\n' "$head" | grep -qE '^[0-9a-f]{40}$' || usage_error "state has no valid pr_head"
-jq -e '.check_runs | type == "array"' "$checks_file" >/dev/null 2>&1 || usage_error "--checks is not a check-runs response"
+aick_check_runs_valid "$checks_file" || usage_error "--checks is not exactly one check-runs response"
 
 lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 detail=""
@@ -132,8 +132,7 @@ git -C "$ROOT" merge-base --is-ancestor "$base_tip" "$head" 2>/dev/null || {
 failed="" pending=""
 while IFS= read -r name; do
   [ -n "$name" ] || continue
-  run="$(jq -c --arg n "$name" --arg h "$head" '[.check_runs[] | select(.name == $n and .head_sha == $h
-    and .app.slug == "github-actions")] | sort_by(.id) | last // empty' "$checks_file")"
+  run="$(aick_required_check "$checks_file" "$name" "$head")"
   if [ -z "$run" ] || [ "$(printf '%s' "$run" | jq -r .status)" != completed ]; then
     pending="$pending$name
 "

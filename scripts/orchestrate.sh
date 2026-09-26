@@ -6,7 +6,7 @@
 # the model and post the result as the Reviewer App. NO_ACTION does nothing;
 # HUMAN_GATE_REQUIRED only notifies Discord, and only when a READY request triggered the run.
 # Environment:
-#   GITHUB_TOKEN           read access to the repository (never used to write)
+#   GITHUB_TOKEN           read access to the repository and its checks (never used to write)
 #   AICK_REVIEWER_TOKEN    Reviewer GitHub App installation token, used only to post the review
 #   OPENAI_API_KEY         model API key
 #   AICK_REVIEWER_MODEL    model name
@@ -90,8 +90,16 @@ if ! git -C "$ROOT" cat-file -e "$ready^{commit}" 2>/dev/null; then
     || fail 2 "cannot fetch the commits of $repo#$pr"
 fi
 
+# The check runs on the Ready-SHA, read from GitHub here and handed to the Reviewer as trusted data.
+# A failed read leaves no file, and the Reviewer is then told that the CI data is unavailable.
+curl -fsSL --connect-timeout 20 --max-time 60 -H "Authorization: Bearer $GITHUB_TOKEN" \
+  -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" \
+  "${GITHUB_API_URL:-https://api.github.com}/repos/$repo/commits/$ready/check-runs?per_page=100" \
+  > "$work/checks.json" 2>/dev/null || rm -f "$work/checks.json"
+
 notify REVIEW_STARTED "round $(state review_round) of $(state limit), scope $(state scope)" || true
 "$HERE/ai-review.sh" --state "$work/state" --pr-file "$work/pr.json" --timeline-file "$work/timeline.json" \
+  --repo "$repo" --checks-file "$work/checks.json" \
   --model "$AICK_REVIEWER_MODEL" --raw-out "$work/model-output.txt" --root "$ROOT" > "$work/review.md"
 code=$?
 case "$code" in
