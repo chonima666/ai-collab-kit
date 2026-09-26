@@ -10,4 +10,6 @@
 - 不要求、不接觸祕密內容（密碼、連線字串、API key、服務帳號金鑰）。
 - 依四個層級審查（需求、程式、驗證、發布），特別確認四種 SHA 是否對齊。
 - 建構者修正後進行複查；接受後才結案該項發現。
+- 每一輪總結標出 `Risk-Flags:`：PR 碰到認證、權限、secret、CI 邊界、分支保護、合併或發布政策、審查系統本身、破壞性 migration、
+  production 基礎設施、計費、破壞性變更，或證據不足時，即使 `VERIFIED` 也要標上；不確定時就標（`REVIEW_PROTOCOL.md` §10.2）。
 - 在 GitHub 上寫的每一則內容，第一行都是 `[AI-Reviewer: 名稱]`，並帶 `Reviewed-SHA:`（`REVIEW_PROTOCOL.md` §8）。

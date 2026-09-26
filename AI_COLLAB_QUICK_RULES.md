@@ -20,7 +20,7 @@ PR 協作以 `.ai-collab/kit/REVIEW_PROTOCOL.md` 為準；專案設定在 `.ai-c
 下列動作即使在已授權的任務中，也必須**就該動作本身**取得當下的明確授權，並先備妥可審查的結果：
 
 - production 部署
-- 合併共用或受保護分支（含 `main`），包括合併自己的 PR
+- 合併共用或受保護分支（含 `main`），包括合併自己的 PR。專案啟用自動交付時，Policy Gate 放行的合併由 workflow 以 Merger App 執行（`REVIEW_PROTOCOL.md` §10），不是 AI 的動作；AI 仍不得自行合併或開啟 auto-merge
 - 刪除資料或分支
 - 強制覆蓋：force push、改寫已共享的歷史
 - 權限邊界變更：IAM、存取控制、角色、祕密存取權、分支保護
@@ -59,15 +59,18 @@ PR 協作以 `.ai-collab/kit/REVIEW_PROTOCOL.md` 為準；專案設定在 `.ai-c
 - **微型任務**：不中斷、同次完成的單一小變更，免建 Mini-Handoff，在 commit 或簡短回報記錄受影響節點與驗證結果。規模小不降低風險分級。
 - 中斷前確認現場不在危險的半途（例如服務被縮到 0、部署做一半）；若是，Handoff 第一行寫明異常狀態與回退方法。（守則 §4.3、§5、§7）
 
-## 7. PR 協作（建構者 ↔ 審查者 ↔ 人）
+## 7. PR 協作（建構者 → 審查者 → Policy Gate）
 
-- GitHub PR 是正式的協作與決策紀錄。建構者開 PR、修正、逐項回應；審查者只回報，不修改被審查的內容；人決定並合併。
+- GitHub PR 是正式的協作與決策紀錄。建構者開 PR、修正、逐項回應；審查者只回報，不修改被審查的內容；
+  Policy Gate 放行的 PR 自動合併，其餘停在 `HUMAN_GATE_REQUIRED` 由 owner 處理。
 - PR 說明依範本填寫四種 SHA：Current HEAD、Code under review、Validated commit、Deployed commit。
-- 審查狀態以 GitHub 的 review／留言為準，人的決定以合併或明確留言為準；PR 說明只能引用，不能自行宣告。
+- 審查狀態以 Reviewer App 的 review 為準，交付狀態以 `ai-collab/gate` 與合併紀錄為準；PR 說明只能引用，不能自行宣告。
 - 審查發現須附檔案、commit、重現或推理路徑、影響，並標「已證實」或「推論」。建構者對每一項都要回應：修正（附 commit）、不修的理由，或列為 Gate。
-- AI 在 GitHub 上寫的每一則說明、留言與 review，第一行必須是角色標頭 `[AI-Builder: 名稱]` 或 `[AI-Reviewer: 名稱]`；審查者加 `Reviewed-SHA:`，建構者請求審查時加 `AI-Review: READY` 與 `Ready-SHA:`。三方共用同一個 GitHub 身分時，只有合併動作算是人的決定。
+- AI 在 GitHub 上寫的每一則說明、留言與 review，第一行必須是角色標頭 `[AI-Builder: 名稱]` 或 `[AI-Reviewer: 名稱]`；審查者加 `Reviewed-SHA:`，建構者請求審查時加 `AI-Review: READY` 與 `Ready-SHA:`。
 - 審查者每一輪都依 `REVIEWER_BOOTSTRAP.md` 從 GitHub 重建狀態，不依賴 session 記憶。
 - 開 PR 前檢查仍開著的 PR 是否與本次變更重疊。（`REVIEW_PROTOCOL.md` §3、§8）
+- Policy Gate：CI 通過、Reviewer 在目前 head 上 `VERIFIED`、`Risk-Flags: none`、沒有改動受保護路徑時，由 Merger App 自動合併。`.github/`、`.ai-collab/`、`CLAUDE.md`、`AGENTS.md` 與 `policy_gate.human_paths` 的變更，以及任何風險旗標，一律 `HUMAN_GATE_REQUIRED`。
+- AI 不得發布或修改 `ai-collab/gate`、不得開啟 auto-merge、不得修改 ruleset 或 bypass 名單。（`REVIEW_PROTOCOL.md` §10）
 
 ## 8. Loop Guard（審查輪數上限）
 
@@ -75,8 +78,8 @@ PR 協作以 `.ai-collab/kit/REVIEW_PROTOCOL.md` 為準；專案設定在 `.ai-c
 - 第一輪之後只審 `Last-Reviewed-SHA..Ready-SHA`，加上仍未結案的發現。審查者每輪總結都要附 `Open-Findings:`。
 - 最多 `project.yaml` 的 `loop_guard.max_review_rounds` 輪（預設 3）。之後的新 Ready-SHA 一律 `HUMAN_GATE_REQUIRED`；同一個發現在 2 個不同 Ready-SHA 上都未結案時也是。輪數用完不等於通過。
 - 喚醒審查者前，用 `.ai-collab/kit/scripts/verify.sh review-state` 判定；結果不是 `REVIEW` 就不審。
-- 自動審查（v0.2）只在 `project.yaml` 的 `identities:` 列出三個不同的 GitHub login 時執行，否則拒絕執行。狀態只認各身分自己寫的紀錄：READY 只認建構者、審查結論只認 Reviewer App、例外授權只認人；PR 說明裡的宣稱不算。建構者 AI 不得以 Reviewer App 或人的身分發言。（`REVIEW_PROTOCOL.md` §9.6）
-- **AI 不得修改、停用、繞過、重置或延長 Loop Guard**，包括修改限制值、自行多跑一輪、自行批准例外、用留言重置計數。例外只能由人以 `Human-Decision: ALLOW_EXTRA_ROUND` 給予，每次只多 1 輪；AI 不得代寫這行。共用 GitHub 身分時這行無法驗證，控制方式是人手動喚醒審查者。（`REVIEW_PROTOCOL.md` §9）
+- 自動審查只在 `project.yaml` 的 `identities:` 設定建構者帳號與另一個 Reviewer App 時執行，否則拒絕執行。READY 只認建構者、審查結論只認 Reviewer App；PR 說明裡的宣稱不算。建構者 AI 不得以 Reviewer App 的身分發言。（`REVIEW_PROTOCOL.md` §8.1、§9.6）
+- **AI 不得修改、停用、繞過、重置或延長 Loop Guard**，包括修改限制值、自行多跑一輪、用留言重置計數、為了重置輪數另開 PR。沒有任何留言能延長輪數；到達 `HUMAN_GATE_REQUIRED` 後這個 PR 的自動流程停止，由 owner 處理。（`REVIEW_PROTOCOL.md` §9）
 
 ## 9. 必須讀守則全文的情境
 

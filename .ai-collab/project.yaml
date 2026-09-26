@@ -1,14 +1,33 @@
 # ai-collab-kit's own profile, read by .github/workflows/ai-review.yml. The kit is not installed
-# into its own repository, so only the blocks the automated reviewer reads are here.
-# Changing any value needs a pull request merged by the owner (LG-06a).
+# into its own repository, so only the blocks the automation reads are here.
+# This file is under .ai-collab/, so every change to it needs the owner (Policy Gate).
 
 loop_guard:
   max_review_rounds: 3
   require_new_sha_for_rereview: true
 
-# Three different GitHub logins (REVIEW_PROTOCOL §9.5, §9.6). While any is empty or two are the
-# same, the automated reviewer refuses to run. See docs/AUTOMATION.md.
+# Two different GitHub logins (REVIEW_PROTOCOL §8.1). The Builder posts as the owner's account;
+# the Reviewer is the Reviewer GitHub App. While either is unset, automation refuses to run.
 identities:
-  human: ""       # the owner's own account: merges and Human-Decision comments
-  builder: ""     # the account or App the Builder AI posts as
+  builder: "chonima666"
   reviewer: ""    # the Reviewer App's bot login, e.g. my-reviewer[bot]
+
+# Changes to these paths always need the owner (REVIEW_PROTOCOL §10.1), on top of the built-in
+# .github/, .ai-collab/, CLAUDE.md and AGENTS.md. `*` also matches "/".
+policy_gate:
+  human_paths:
+    - "scripts/*"
+    - "REVIEW_PROTOCOL.md"
+    - "REVIEWER_BOOTSTRAP.md"
+    - "AI_COLLAB_GUIDE.md"
+    - "AI_COLLAB_QUICK_RULES.md"
+    - "roles/*"
+    - "adapters/*"
+    - "templates/*"
+    - "docs/AUTOMATION.md"
+
+# Checks that must pass on the pull request head before automatic merge (REVIEW_PROTOCOL §10).
+auto_merge:
+  required_checks:
+    - "test (ubuntu-latest)"
+    - "test (macos-latest)"

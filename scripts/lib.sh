@@ -20,6 +20,8 @@ AICK_MANAGED_FILES=(
   scripts/ai-review.sh
   scripts/notify-discord.sh
   scripts/orchestrate.sh
+  scripts/policy-gate.sh
+  scripts/deliver.sh
 )
 # Top-level keys every project.yaml must define.
 AICK_PROFILE_KEYS=(project owner roles tracking stricter_rules commands lint_baseline
@@ -86,3 +88,38 @@ aick_profile_block() {
 aick_identity() {
   aick_profile_block "$1" identities | sed -n "s/^$2=//p" | tail -n 1 | sed "s/^[\"']//; s/[\"']\$//"
 }
+
+# Print the items of list $3 in top-level block $2 of YAML file $1, one per line, without quotes.
+# Supports "key: []" and a block list of "- item" lines. Returns 1 when the block or key is
+# missing and 3 for any other inline value, so a list the parser cannot read is never taken as
+# empty: an empty list would let more changes merge automatically.
+aick_profile_list() {
+  awk -v block="$2" -v key="$3" -v q="'" '
+    /^[^[:space:]#]/ { inside = ($0 ~ "^" block ":[[:space:]]*(#.*)?$"); inlist = 0; next }
+    !inside { next }
+    {
+      line = $0; sub(/#.*/, "", line); sub(/[[:space:]]+$/, "", line)
+      if (line == "") next
+      if (line ~ "^[[:space:]]+" key ":") {
+        found = 1; inlist = 1; val = line; sub(/^[^:]*:[[:space:]]*/, "", val)
+        if (val != "" && val != "[]") bad = 1
+        if (val == "[]") inlist = 0
+        next
+      }
+      if (inlist && line ~ /^[[:space:]]+-[[:space:]]/) {
+        item = line; sub(/^[[:space:]]+-[[:space:]]+/, "", item)
+        gsub("^[\"" q "]|[\"" q "]$", "", item)
+        if (item != "") print item
+        next
+      }
+      inlist = 0
+    }
+    END { if (bad) exit 3; if (!found) exit 1 }' "$1"
+}
+
+# Reviewer risk flags (REVIEW_PROTOCOL §10.2). Any flag stops automatic merge, even on VERIFIED.
+AICK_RISK_FLAGS=(auth permissions secrets ci-boundary branch-protection merge-policy release
+  review-system data-migration infrastructure billing breaking-change insufficient-evidence)
+# Paths that always need the owner, whatever project.yaml says: they control CI and workflows,
+# the kit, its settings and the agents' entry points (REVIEW_PROTOCOL §10.1).
+AICK_POLICY_BUILTIN_PATHS=(".github/*" ".ai-collab/*" "CLAUDE.md" "AGENTS.md")
