@@ -61,7 +61,7 @@ required="$(read_list auto_merge required_checks)" || exit 2
 state() { sed -n "s/^$1=//p" "$state_file" | tail -n 1; }
 head="$(state pr_head)"
 printf '%s\n' "$head" | grep -qE '^[0-9a-f]{40}$' || usage_error "state has no valid pr_head"
-jq -e '.check_runs | type == "array"' "$checks_file" >/dev/null 2>&1 || usage_error "--checks is not a check-runs response"
+aick_check_runs_valid "$checks_file" || usage_error "--checks is not exactly one check-runs response"
 
 lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 detail=""

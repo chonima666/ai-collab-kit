@@ -250,8 +250,12 @@ PR 說明裡宣稱的審查狀態一律不算。
   - 其他 commit 或其他 App 的同名 check 只會列為「ignored」，不會當成證據。
 - check-runs 讀不到、格式不對，或 `required_checks` 讀不懂時，會寫明「UNAVAILABLE」，不顯示任何結果，也絕不顯示為成功。
   審查照常進行，合併仍由 Policy Gate 擋住。
+- check-runs 的回應必須剛好是一個 JSON 物件（`lib.sh` 的 `aick_check_runs_valid`）。串接多份 JSON 一律視為格式錯誤：
+  審查者看到 UNAVAILABLE，Policy Gate 直接失敗。
 
 PR 的標題、說明、留言與 diff 都放在標為 untrusted 的段落。PR 文字裡關於 CI 的任何宣稱都不算證據。
+- 可信段落的標題帶有每次審查隨機產生的標記，system prompt 也寫明只有帶這個標記的段落可信。PR 作者事先無法知道這個標記。
+- 不可信文字中以 `=====` 開頭的行會加上 `| ` 前綴，不能自己開出一個段落。
 
 **CI 與 `insufficient-evidence` 的分工**：
 - 審查者負責判斷程式、需求與證據是否合理。

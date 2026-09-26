@@ -117,6 +117,14 @@ aick_profile_list() {
     END { if (bad) exit 3; if (!found) exit 1 }' "$1"
 }
 
+# Succeed only when file $1 holds exactly one JSON object with a check_runs array, as GitHub's
+# check-runs response does. Anything else, including several JSON documents in a row, is malformed:
+# a later document must never be able to hide an earlier one, or the other way round.
+aick_check_runs_valid() {
+  [ -s "$1" ] && jq -e -s 'length == 1 and (.[0] | type == "object")
+    and (.[0].check_runs | type == "array")' "$1" >/dev/null 2>&1
+}
+
 # Print, as compact JSON, the latest GitHub Actions check run named $2 on commit $3 from the
 # check-runs response $1, or nothing when there is none. The Policy Gate and the Reviewer's trusted
 # context both select runs here, so the CI evidence the model sees is the evidence the gate enforces.
