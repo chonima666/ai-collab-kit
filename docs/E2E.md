@@ -19,6 +19,7 @@
 | A3 | 同一個 SHA 再貼一次 READY | `NO_ACTION`，不呼叫模型 | 未驗證 |
 | A4 | `AICK_AUTO_MERGE` 未開啟 | `deliver` job 不執行，沒有 `ai-collab/gate` 狀態 | 2026-09-26 通過，證據 E2 |
 | A5 | Reviewer App 的金鑰無效 | 不呼叫模型、不貼文，`REVIEW_FAILED` | 2026-09-26 通過，證據 E3 |
+| A6 | 同一個發現在 2 個不同 SHA 上都未結案（LG-05） | 下一個 READY 判定 `HUMAN_GATE_REQUIRED`（`repeated_unresolved_finding`），不呼叫模型、不建立 App token，由 owner 決定 | 2026-09-26 通過，證據 E4 |
 
 ## 第二階段：自動交付（ruleset 設好後開 `AICK_AUTO_MERGE`）
 
@@ -63,3 +64,19 @@ scope=full
 - 紀錄裡沒有 `REVIEW_STARTED`，也沒有 `posted:` 這一行。
 - `scripts/orchestrate.sh` 在第 84 行檢查 token，第 93、94 行之後才通知 `REVIEW_STARTED` 並呼叫 `ai-review.sh`（模型呼叫在其中）。所以 token 為空時不會呼叫模型。
 - 該次 PR #6 上沒有出現任何審查。
+
+**E4（A6）**：PR #6 的 R1-01 在 `dc0af6d`（review 5325622377）與 `109ead8`（review 5325626897）兩個 SHA 上都未結案。
+對 `1069330` 的 READY 觸發 [run 36236331688](https://github.com/chonima666/ai-collab-kit/actions/runs/36236331688)，`act` job 印出：
+
+```text
+limit=2
+ready=1069330ce4ccc9765af20b26685170cd6be2e132
+last_reviewed=109ead810453f9a644ba1bd4f09d36fc48ecd0b8
+disputed_findings=R1-01
+HUMAN_GATE_REQUIRED: no model call
+```
+
+建立 Reviewer App token 的步驟是 skipped（只在 `REVIEW` 時執行），`deliver` job 也是 skipped。
+
+**這不是審查失敗**：Loop Guard 依設計停止 AI 之間的自動迭代，把決策交給 owner。之後沒有再請求第 3 輪審查，也沒有為了取得
+`VERIFIED` 而延長輪數或另開管道（LG-06a、LG-06b）。PR #6 是否合併由 owner 在 Human Gate 決定。
