@@ -20,6 +20,9 @@
 | A4 | `AICK_AUTO_MERGE` 未開啟 | `deliver` job 不執行，沒有 `ai-collab/gate` 狀態 | 2026-09-26 通過，證據 E2 |
 | A5 | Reviewer App 的金鑰無效 | 不呼叫模型、不貼文，`REVIEW_FAILED` | 2026-09-26 通過，證據 E3 |
 | A6 | 同一個發現在 2 個不同 SHA 上都未結案（LG-05） | 下一個 READY 判定 `HUMAN_GATE_REQUIRED`（`repeated_unresolved_finding`），不呼叫模型、不建立 App token，由 owner 決定 | 2026-09-26 通過，證據 E4 |
+| A7 | 審查者的可信資料（v0.3.1） | prompt 帶 repository 全名與 Ready-SHA 上 required checks 的狀態，審查內容引用得到 | 2026-09-26 通過，證據 E5 |
+| A8 | READY 時 CI 仍在執行（v0.3.1） | 審查照常完成，不因 CI 未完成標 `insufficient-evidence` | 2026-09-26 通過，證據 E5 |
+| A9 | CI 通過 + `VERIFIED` + `Risk-Flags: none` | Policy Gate 判定 `AUTO_MERGE_ALLOWED` | 2026-09-26 以真實資料離線執行 `policy-gate.sh` 通過，證據 E5；實際自動合併見 B1 |
 
 ## 第二階段：自動交付（ruleset 設好後開 `AICK_AUTO_MERGE`）
 
@@ -80,3 +83,12 @@ HUMAN_GATE_REQUIRED: no model call
 
 **這不是審查失敗**：Loop Guard 依設計停止 AI 之間的自動迭代，把決策交給 owner。之後沒有再請求第 3 輪審查，也沒有為了取得
 `VERIFIED` 而延長輪數或另開管道（LG-06a、LG-06b）。PR #6 是否合併由 owner 在 Human Gate 決定。
+
+**E5（A7～A9）**：PR #8（只改 `README.md`）的 READY 觸發 [run 36238402253](https://github.com/chonima666/ai-collab-kit/actions/runs/36238402253)，
+`act` job 印出 `decision=REVIEW`、`ready=a3ff704aba25dd94d3f5e98fa3d51e5853933606`，最後 `posted: VERIFIED, Open-Findings: none`。
+- Reviewer App 的 review 5325744613 在 11:18:47 貼出，開頭寫「儲存庫 `chonima666/ai-collab-kit`，PR #8」，並寫「可信資料顯示兩項必要 CI 檢查仍在執行，不能視為已通過」，
+  結尾是 `Review-Status: VERIFIED`、`Risk-Flags: none`。
+- 同一個 head 的 CI（[run 36238398580](https://github.com/chonima666/ai-collab-kit/actions/runs/36238398580)）在 11:19:19 才全部完成，所以審查時 CI 確實還在執行。
+- 以 GitHub API 取得 PR #8 的 pull request、留言、review 與 `a3ff704` 的 check-runs（兩項都是 `github-actions` 的 `completed`/`success`），
+  以及當時 `main` 的 tip `9b6439f`，依序執行 `pr-state.sh`（檔案模式）與 `policy-gate.sh`，輸出 `decision=AUTO_MERGE_ALLOWED`、`reason=all_conditions_met`。
+  當時 `AICK_AUTO_MERGE` 未開啟，`deliver` job 是 skipped，PR #8 由 owner 手動合併。
