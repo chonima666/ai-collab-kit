@@ -146,11 +146,13 @@ Repo → Settings → Rules → Rulesets → **New ruleset** → New branch rule
 | Block force pushes | 開啟 |
 | Require a pull request before merging | 開啟；Required approvals 為 0 |
 | Require status checks to pass | 開啟，加入 CI 的每個 check（kit repo 是 `test (ubuntu-latest)`、`test (macos-latest)`），以及 `ai-collab/gate`，來源選 Merger App |
+| Require branches to be up to date before merging | 開啟 |
 
 另外在 Settings → General → Pull Requests 確認 **Allow merge commits** 已開啟，自動合併使用 merge commit。
 
-不要開啟「Require branches to be up to date before merging」：開啟後每次 `main` 前進，所有 PR 都要重新合併與審查。
-這個取捨寫在 `REVIEW_PROTOCOL.md` §10.4。
+「Require branches to be up to date」必須開啟：否則兩個各自在舊 `main` 上通過的 PR 可以先後合併，而兩者合在一起的狀態從沒跑過 CI。
+Policy Gate 也會檢查同一件事（`base_outdated`）。代價是 `main` 前進後，其他 PR 要先合併 `main`、重跑 CI 並重新審查
+（`REVIEW_PROTOCOL.md` §10.4）。
 
 ruleset 生效後，沒有 `ai-collab/gate` 成功狀態的 PR 誰都無法合併，包括 owner。Human Gate 的例外處理見
 `REVIEW_PROTOCOL.md` §10.5。

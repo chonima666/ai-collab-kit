@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # Policy Gate (REVIEW_PROTOCOL §10): decide whether a pull request may be merged automatically.
 #   policy-gate.sh --state <pr-state output> --paths <file> --checks <check-runs.json>
-#       [--root <project-root>]
+#       --base-tip <sha> [--root <project-root>]
 # --paths holds the files the pull request changes, NUL-separated, as printed by
 # `git diff --no-renames --name-only -z <base>...<head>`; --checks is GitHub's check-runs response
-# for the head commit. Nothing is read from the network and nothing from the pull request runs.
+# for the head commit; --base-tip is the current tip of the base branch, whose commit must be in
+# the local repository. Nothing is read from the network and nothing from the pull request runs.
 # Output is key=value lines; the first is decision=:
 #   AUTO_MERGE_ALLOWED   exit 0   every condition holds
-#   NOT_READY            exit 10  not yet: the head is not reviewed or VERIFIED, or CI is not green
+#   NOT_READY            exit 10  not yet: the head is not reviewed or VERIFIED, does not contain the
+#                                 current base, or CI is not green
 #   HUMAN_GATE_REQUIRED  exit 20  the owner decides; automation never merges this pull request
 # Exit 2 is invalid input or configuration. Every condition is required, so a condition that
 # cannot be established never ends in AUTO_MERGE_ALLOWED.
@@ -19,13 +21,14 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 usage_error() { echo "$*" >&2; exit 2; }
 
-state_file="" paths_file="" checks_file="" ROOT=""
+state_file="" paths_file="" checks_file="" base_tip="" ROOT=""
 while [ $# -gt 0 ]; do
   [ $# -ge 2 ] || usage_error "missing value for $1"
   case "$1" in
     --state) state_file="$2" ;;
     --paths) paths_file="$2" ;;
     --checks) checks_file="$2" ;;
+    --base-tip) base_tip="$2" ;;
     --root) ROOT="$2" ;;
     *) usage_error "unknown argument: $1" ;;
   esac
@@ -35,7 +38,9 @@ command -v jq >/dev/null 2>&1 || usage_error "policy-gate.sh needs jq"
 for f in "$state_file" "$paths_file" "$checks_file"; do
   [ -n "$f" ] && [ -f "$f" ] || usage_error "--state, --paths and --checks must name existing files"
 done
+printf '%s\n' "$base_tip" | grep -qE '^[0-9a-f]{40}$' || usage_error "--base-tip must be a 40-character sha"
 [ -n "$ROOT" ] || ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+git -C "$ROOT" cat-file -e "$base_tip^{commit}" 2>/dev/null || usage_error "base tip $base_tip is not in $ROOT"
 profile="$ROOT/.ai-collab/project.yaml"
 [ -f "$profile" ] || usage_error "$profile missing"
 
@@ -114,7 +119,15 @@ flags="$(state head_risk_flags)"
 [ -z "$protected" ] || decide HUMAN_GATE_REQUIRED protected_path
 [ -z "$flags" ] || decide HUMAN_GATE_REQUIRED reviewer_risk_flags
 
-# 5. Every required check has a successful GitHub Actions run on this head. Runs from any other
+# 5. The head must already contain the current base, so the CI run on the head tested exactly the
+# tree that the merge delivers. Otherwise two pull requests that were each green on an older base
+# could be merged together without their combination ever being tested.
+git -C "$ROOT" merge-base --is-ancestor "$base_tip" "$head" 2>/dev/null || {
+  add_detail "base_tip=$base_tip"
+  decide NOT_READY base_outdated
+}
+
+# 6. Every required check has a successful GitHub Actions run on this head. Runs from any other
 # app, or for another commit, do not count.
 failed="" pending=""
 while IFS= read -r name; do

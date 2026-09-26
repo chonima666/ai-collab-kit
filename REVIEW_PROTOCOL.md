@@ -254,7 +254,7 @@ PR 說明裡宣稱的審查狀態一律不算。
   預設分支只能經由合併的 PR 改變，而改動 `.github/` 與 kit 本身一律需要 owner（§10.1）。
 - 不使用 `pull_request`、`pull_request_target` 或 `pull_request_review` 觸發。
 - PR 的程式碼只以 git 物件取得，用來產生 diff 與變更清單，從不 checkout 成工作目錄或執行。
-- workflow 使用的每一個 action 都固定在完整的 commit SHA，不用可以移動的 tag。
+- 每一個 workflow（包括 `ci.yml`，它的結果是自動合併的條件）使用的 action 都固定在完整的 commit SHA，不用可以移動的 tag。
 - 判定狀態的 job 沒有任何 secret。所有 secret 放在只限預設分支使用的 `ai-review` environment：
   審查 job 只拿到模型金鑰與 Reviewer App 金鑰，且只在 `REVIEW` 時交出；交付 job 只拿到 Merger App 金鑰。
 - 來自 fork 的 PR 一律不自動審查、不自動交付。
@@ -281,7 +281,8 @@ Policy Gate 決定一個 PR 能否不經人工直接合併。它由固定規則�
    - 內建、無法移除：`.github/`、`.ai-collab/`、`CLAUDE.md`、`AGENTS.md`（CI 與 workflow、kit 本身與設定、agent 入口）；
    - 加上 `project.yaml` 的 `policy_gate.human_paths`，例如認證、migration、基礎設施、計費的目錄。
    路徑比對不分大小寫，`*` 也會跨目錄。搬移檔案視為「刪除舊路徑＋新增新路徑」，把受保護的檔案移走也算改動它。
-6. `project.yaml` 的 `auto_merge.required_checks` 中每一個 check，在目前 head 上都有由 GitHub Actions 產生、最新一次結論為
+6. head 已經包含預設分支目前的 tip。tip 在判定當下從 GitHub 讀取，不沿用 PR 建立時的紀錄（§10.4）。
+7. `project.yaml` 的 `auto_merge.required_checks` 中每一個 check，在目前 head 上都有由 GitHub Actions 產生、最新一次結論為
    `success` 的執行。其他 app 產生的同名 check、其他 commit 的 check 都不算。
 
 不成立時的結果：
@@ -291,7 +292,7 @@ Policy Gate 決定一個 PR 能否不經人工直接合併。它由固定規則�
 | 第 5 項不成立 | `HUMAN_GATE_REQUIRED` | `protected_path` |
 | 第 4 項不成立 | `HUMAN_GATE_REQUIRED` | `reviewer_risk_flags` |
 | 第 2 項不成立 | `HUMAN_GATE_REQUIRED` | `loop_guard` |
-| 還沒審查、`CHANGES_REQUESTED`、CI 還沒跑完或失敗、草稿、目標不是預設分支 | `NOT_READY` | `not_reviewed`、`changes_requested`、`ci_pending`、`ci_failed`、`draft`、`not_default_branch` |
+| 還沒審查、`CHANGES_REQUESTED`、head 不包含最新的預設分支、CI 還沒跑完或失敗、草稿、目標不是預設分支 | `NOT_READY` | `not_reviewed`、`changes_requested`、`base_outdated`、`ci_pending`、`ci_failed`、`draft`、`not_default_branch` |
 
 `NOT_READY` 是建構者還有事要做或正在等待；`HUMAN_GATE_REQUIRED` 則表示自動化永遠不會合併這個 PR。
 任一條件無法確認，例如設定讀不懂或 `required_checks` 是空的，就是錯誤（exit 2），不會放行。
@@ -319,8 +320,9 @@ Policy Gate 決定一個 PR 能否不經人工直接合併。它由固定規則�
 
 ### 10.3 判定工具
 
-`scripts/policy-gate.sh` 只讀本機檔案：`pr-state.sh` 的輸出、PR 的變更清單（`git diff --no-renames --name-only -z`）
-與 head 的 check-runs。它不連網，也不執行 PR 的任何內容。
+`scripts/policy-gate.sh` 只讀本機資料：`pr-state.sh` 的輸出、PR 的變更清單（`git diff --no-renames --name-only -z`）、
+head 的 check-runs，以及交付腳本剛讀到的預設分支 tip；head 是否包含這個 tip 用本機的 git 物件判斷。
+它不連網，也不執行 PR 的任何內容。
 
 | decision | exit code |
 | --- | --- |
@@ -334,7 +336,7 @@ Policy Gate 決定一個 PR 能否不經人工直接合併。它由固定規則�
 `scripts/deliver.sh` 在三個時機執行：審查貼出之後、CI 在同 repo 的 PR 上成功結束之後，以及手動啟動 workflow 時。
 每次都從 GitHub 重新判定，不沿用上一次執行的結果，所以重跑 workflow 不會繞過任何條件。步驟：
 
-1. 以 `pr-state.sh` 重建狀態，取得變更清單與 head 的 check-runs。
+1. 以 `pr-state.sh` 重建狀態，並從 GitHub 讀取預設分支目前的 tip、變更清單與 head 的 check-runs。
 2. 執行 Policy Gate。
 3. 以 **Merger App** 的身分，在 head commit 發布 commit status `ai-collab/gate`：
    `AUTO_MERGE_ALLOWED` 為 `success`，`NOT_READY` 為 `pending`，`HUMAN_GATE_REQUIRED` 為 `failure`。
@@ -349,11 +351,16 @@ Merger App 的金鑰不存在、狀態貼不出去或 GitHub 拒絕合併，一�
 | --- | --- |
 | 必須經過 PR | 開啟，需要的 approval 數為 0 |
 | 必須通過的 status checks | CI 的各個 check，以及 `ai-collab/gate`（來源限定 Merger App） |
+| 合併前分支必須與預設分支同步（Require branches to be up to date） | 開啟 |
 | 禁止 force push、禁止刪除分支 | 開啟 |
 | bypass 名單 | 空白 |
 
-不要求 PR 分支與 `main` 同步：Policy Gate 判定的是 PR 本身的變更（`base...head`），`main` 上較新的變更已由它們自己的 PR
-審查與判定。要求同步會讓 `main` 每前進一次，所有開著的 PR 都要重新合併與審查。
+**必須與預設分支同步**：兩個 PR 可能各自在同一個舊的 `main` 上通過 CI 與審查；其中一個合併後，另一個的 CI 結果並沒有測過
+兩者合在一起的狀態。所以 Policy Gate 要求 head 已經包含預設分支目前的 tip（`base_outdated`），此時 head 的 tree 就是合併後
+交付的 tree，CI 測的正是要交付的內容。ruleset 的「必須同步」再擋住判定之後 `main` 又前進的情況。
+
+代價：`main` 前進後，其他開著的 PR 要先把 `main` 合併進自己的分支。這會產生新的 head，需要重新跑 CI 並重新審查，
+也就是再用掉一輪 Loop Guard。
 
 `ai-collab/gate` 的來源必須限定 Merger App。GitHub Actions 的身分不夠：PR 可以加入自己的 workflow，以 GitHub Actions
 的身分發布同名狀態。Merger App 的金鑰只在限定預設分支的 environment 中，PR 裡的 workflow 拿不到。

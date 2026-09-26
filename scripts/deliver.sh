@@ -53,8 +53,18 @@ if [ "$(state same_repo)" != true ]; then
 fi
 [ "$(state pr_state)" = open ] || { echo "$repo#$pr is $(state pr_state); nothing to deliver"; exit 0; }
 
+read_api() {
+  curl -fsSL --connect-timeout 20 --max-time 60 -H "Authorization: Bearer $GITHUB_TOKEN" \
+    -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "$api/$1"
+}
+# The current tip of the base branch, read now rather than taken from the pull request record:
+# the head must contain it before anything is merged (REVIEW_PROTOCOL §10.1).
+base_tip="$(read_api "git/ref/heads/$(state pr_base_ref)" | jq -r '.object.sha // empty')" \
+  || usage_error "cannot read the tip of $(state pr_base_ref)"
+printf '%s\n' "$base_tip" | grep -qE '^[0-9a-f]{40}$' || usage_error "cannot read the tip of $(state pr_base_ref)"
+
 # The changed files come from git objects; the pull request's code is never checked out or run.
-for sha in "$base" "$head"; do
+for sha in "$base" "$head" "$base_tip"; do
   git -C "$ROOT" cat-file -e "$sha^{commit}" 2>/dev/null && continue
   git -C "$ROOT" fetch --no-tags --quiet origin "+refs/pull/$pr/head:refs/remotes/aick/pr-$pr" \
     "+refs/heads/$(state pr_base_ref):refs/remotes/aick/base-$pr" || usage_error "cannot fetch the commits of $repo#$pr"
@@ -62,18 +72,15 @@ for sha in "$base" "$head"; do
 done
 git -C "$ROOT" diff --no-renames --name-only -z "$base...$head" > "$work/paths" \
   || usage_error "cannot list the files changed by $repo#$pr"
-curl -fsSL --connect-timeout 20 --max-time 60 -H "Authorization: Bearer $GITHUB_TOKEN" \
-  -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" \
-  "$api/commits/$head/check-runs?per_page=100" > "$work/checks.json" \
-  || usage_error "cannot read the checks of $head"
+read_api "commits/$head/check-runs?per_page=100" > "$work/checks.json" || usage_error "cannot read the checks of $head"
 
 "$HERE/policy-gate.sh" --state "$work/state" --paths "$work/paths" --checks "$work/checks.json" \
-  --root "$ROOT" > "$work/gate"
+  --base-tip "$base_tip" --root "$ROOT" > "$work/gate"
 gate=$?
 cat "$work/gate"
 [ "$gate" -ne 2 ] || exit 2
 decision="$(sed -n 's/^decision=//p' "$work/gate")" reason="$(sed -n 's/^reason=//p' "$work/gate")"
-summary="$reason$(sed -nE 's/^(protected_paths|risk_flags|failed_checks|pending_checks|loop_guard_reason)=/ \1=/p' "$work/gate" | tr -d '\n')"
+summary="$reason$(sed -nE 's/^(protected_paths|risk_flags|failed_checks|pending_checks|loop_guard_reason|base_tip)=/ \1=/p' "$work/gate" | tr -d '\n')"
 
 fail() {
   echo "AUTO_MERGE_FAILED: $1" >&2

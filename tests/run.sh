@@ -208,6 +208,7 @@ reset_fake() {
   ready_comment chonima666 "$h" > "$F/comments.json"
   echo '[]' > "$F/reviews.json"
   checks "$h" test completed success github-actions
+  echo "$base_sha" > "$F/base_tip"
   printf 'The change looks correct.\n\nReview-Status: VERIFIED\nOpen-Findings: none\nRisk-Flags: none\n' > "$F/model_output.txt"
 }
 ready_comment() {
@@ -423,7 +424,7 @@ reset_fake; verified_at "$ready_sha"; deliv --trigger review
 expect_deliv "low risk + CI green + Reviewer VERIFIED: merged automatically" 0 AUTO_MERGE_ALLOWED success 1 "AUTO_MERGED"
 [ "$(jq -r '.sha + " " + .merge_method' "$F/merge.json")" = "$ready_sha merge" ] && ok "the merge is pinned to the judged head" || bad "the merge is pinned to the judged head"
 [ "$(jq -r '.context' "$F/status.json")" = ai-collab/gate ] && ok "the gate is posted as the ai-collab/gate status" || bad "the gate is posted as the ai-collab/gate status"
-[ "$(sort -u "$F/auth.log")" = "$(printf 'get_checks read-token\nget_comments read-token\nget_pr read-token\nget_reviews read-token\nmerge merger-token\npost_status merger-token')" ] \
+[ "$(sort -u "$F/auth.log")" = "$(printf 'get_base_tip read-token\nget_checks read-token\nget_comments read-token\nget_pr read-token\nget_reviews read-token\nmerge merger-token\npost_status merger-token')" ] \
   && ok "only the Merger App token writes: the status and the merge" || { bad "only the Merger App token writes: the status and the merge"; cat "$F/auth.log"; }
 reset_fake; verified_at "$ready_sha"; deliv --trigger ci
 expect_deliv "the same decision after CI finishes merges too" 0 AUTO_MERGE_ALLOWED success 1 "AUTO_MERGED"
@@ -451,6 +452,19 @@ reset_fake; verified_at "$ready_sha"; checks "$(printf '%040d' 8)" test complete
 expect_deliv "a check for another commit does not count" 0 NOT_READY pending 0 -
 reset_fake; verified_at "$ready_sha"; checks "$ready_sha" test completed success github-actions test completed failure github-actions; deliv
 expect_deliv "the latest run of a check decides" 0 NOT_READY pending 0 -
+# A commit that reached main after the pull request branched: the head does not contain it.
+git -C "$a" checkout -q --detach "$base_sha" && echo other > "$a/other.txt" && git -C "$a" add -A \
+  && git -C "$a" commit -qm "another pull request, merged first" && newer_base="$(git -C "$a" rev-parse HEAD)" \
+  && git -C "$a" checkout -q -
+reset_fake; verified_at "$ready_sha"; echo "$newer_base" > "$F/base_tip"; deliv --trigger ci
+expect_deliv "the base moved on since the head: NOT_READY until the head contains it" 0 NOT_READY pending 0 -
+grep -qx "reason=base_outdated" "$F/work/gate" && ok "the reason is base_outdated" || bad "the reason is base_outdated"
+reset_fake; verified_at "$ready_sha"; echo "$s_2" > "$F/base_tip"; deliv
+expect_deliv "a head that already contains the current base tip can merge" 0 AUTO_MERGE_ALLOWED success 1 "AUTO_MERGED"
+reset_fake; verified_at "$ready_sha"; rm -f "$F/base_tip"; deliv
+expect_deliv "the base tip cannot be read: nothing posted, nothing merged" 2 - - 0 -
+reset_fake; verified_at "$ready_sha"; printf '%040d\n' 7 > "$F/base_tip"; deliv
+expect_deliv "a base tip that cannot be fetched: nothing posted, nothing merged" 2 - - 0 -
 reset_fake; verified_at "$ready_sha" "auth, breaking-change"; deliv --trigger review
 expect_deliv "Reviewer risk flags: HUMAN_GATE_REQUIRED, announced once" 0 HUMAN_GATE_REQUIRED failure 0 "HUMAN_GATE_REQUIRED"
 reset_fake; verified_at "$ready_sha" insufficient-evidence; deliv --trigger ci
@@ -474,7 +488,8 @@ grep -qF "protected_paths=.github/pull_request_template.md" "$F/work/gate" && ok
 # Case is compared without the filesystem, which may itself ignore case.
 reset_fake; verified_at "$ready_sha"; deliv
 printf '.GitHub/Workflows/x.yml\0' > "$WORK/paths-case"
-"$KIT/scripts/policy-gate.sh" --state "$F/work/state" --paths "$WORK/paths-case" --checks "$F/work/checks.json" --root "$a" > "$WORK/gate-case" 2>&1
+"$KIT/scripts/policy-gate.sh" --state "$F/work/state" --paths "$WORK/paths-case" --checks "$F/work/checks.json" \
+  --base-tip "$base_sha" --root "$a" > "$WORK/gate-case" 2>&1
 [ $? = 20 ] && grep -qx "protected_paths=.GitHub/Workflows/x.yml" "$WORK/gate-case" && ok "a differently cased protected path: HUMAN_GATE_REQUIRED" \
   || { bad "a differently cased protected path: HUMAN_GATE_REQUIRED"; cat "$WORK/gate-case"; }
 reset_fake; gate_reviews; deliv
@@ -567,7 +582,11 @@ else
   echo "skip - ai-review workflow boundary check (python3 with PyYAML not available; NOT verified)"
 fi
 
-# 10. Workflow files must parse; an invalid workflow silently produces no CI run at all.
+# 10. Every action in every workflow is pinned to a full commit SHA: CI results authorize merges.
+unpinned="$(grep -hE '^[[:space:]]*(-[[:space:]]*)?uses:' "$KIT"/.github/workflows/*.yml | grep -vE 'uses:[[:space:]]*[^@[:space:]]+@[0-9a-f]{40}([[:space:]]|$)')"
+[ -z "$unpinned" ] && ok "every workflow pins its actions to a commit SHA" || { bad "every workflow pins its actions to a commit SHA"; echo "$unpinned"; }
+
+# 11. Workflow files must parse; an invalid workflow silently produces no CI run at all.
 if command -v python3 >/dev/null 2>&1 && python3 -c 'import yaml' 2>/dev/null; then
   for wf in "$KIT"/.github/workflows/*.yml; do
     expect_success "workflow parses: ${wf##*/}" python3 -c 'import sys, yaml; yaml.safe_load(open(sys.argv[1]))' "$wf"
