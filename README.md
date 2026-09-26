@@ -20,6 +20,7 @@
 | `scripts/pr-state.sh`、`scripts/ai-review.sh`、`scripts/orchestrate.sh`、`scripts/notify-discord.sh` | 自動審查：從 GitHub 重建狀態、呼叫模型審查、以 Reviewer App 回寫、Discord 通知 |
 | `scripts/policy-gate.sh`、`scripts/deliver.sh` | 自動交付：以固定規則判定能否自動合併，由 Merger App 發布 `ai-collab/gate` 並合併 |
 | `.github/workflows/ai-review.yml`、`docs/AUTOMATION.md` | 自動審查與自動交付的 workflow 與設定步驟 |
+| `docs/E2E.md` | 在真實 GitHub、GitHub App 與 OpenAI 上的端對端驗收紀錄與證據 |
 | `tests/run.sh` | 端對端測試 |
 
 ## 安裝到專案
