@@ -132,8 +132,7 @@ git -C "$ROOT" merge-base --is-ancestor "$base_tip" "$head" 2>/dev/null || {
 failed="" pending=""
 while IFS= read -r name; do
   [ -n "$name" ] || continue
-  run="$(jq -c --arg n "$name" --arg h "$head" '[.check_runs[] | select(.name == $n and .head_sha == $h
-    and .app.slug == "github-actions")] | sort_by(.id) | last // empty' "$checks_file")"
+  run="$(aick_required_check "$checks_file" "$name" "$head")"
   if [ -z "$run" ] || [ "$(printf '%s' "$run" | jq -r .status)" != completed ]; then
     pending="$pending$name
 "

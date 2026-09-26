@@ -30,7 +30,10 @@ done
 F="$FAKE_DIR" status=200 body=""
 page="${url##*page=}"
 case "$method $url" in
-  "GET "*/commits/*/check-runs*) kind=get_checks; body="$(cat "$F/check_runs.json")" ;;
+  "GET "*/commits/*/check-runs*)
+    kind=get_checks
+    status="$(cat "$F/checks_status" 2>/dev/null || echo 200)"
+    body="$(cat "$F/check_runs.json")" ;;
   "GET "*/git/ref/heads/*)
     kind=get_base_tip
     if [ -f "$F/base_tip" ]; then body="$(jq -n --arg s "$(cat "$F/base_tip")" '{object: {sha: $s}}')"; else status=404; body='{}'; fi ;;

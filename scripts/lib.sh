@@ -117,6 +117,14 @@ aick_profile_list() {
     END { if (bad) exit 3; if (!found) exit 1 }' "$1"
 }
 
+# Print, as compact JSON, the latest GitHub Actions check run named $2 on commit $3 from the
+# check-runs response $1, or nothing when there is none. The Policy Gate and the Reviewer's trusted
+# context both select runs here, so the CI evidence the model sees is the evidence the gate enforces.
+aick_required_check() {
+  jq -c --arg n "$2" --arg h "$3" '[.check_runs[] | select(.name == $n and .head_sha == $h
+    and .app.slug == "github-actions")] | sort_by(.id) | last // empty' "$1"
+}
+
 # Reviewer risk flags (REVIEW_PROTOCOL §10.2). Any flag stops automatic merge, even on VERIFIED.
 AICK_RISK_FLAGS=(auth permissions secrets ci-boundary branch-protection merge-policy release
   review-system data-migration infrastructure billing breaking-change insufficient-evidence)

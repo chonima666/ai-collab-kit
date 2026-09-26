@@ -68,6 +68,11 @@ AGENTS.md                       # 入口；標記內的區塊由 kit 管理，�
 本 repo 的 `.ai-collab/project.yaml` 把 `scripts/`、協議與守則、角色、adapter、範本與 `docs/AUTOMATION.md` 列為受保護路徑，
 所以改動它們的 PR 一律由人合併；文件與測試的一般修改可以自動合併。
 
+## 從 v0.3.0 升級到 v0.3.1
+
+不需要修改 `project.yaml`。審查者的 prompt 新增可信的 repository／CI 資料（`REVIEW_PROTOCOL.md` §9.6），
+`ai-review.yml` 的審查 job 因此多了 `checks: read`；其他專案要同步更新複製過去的 workflow。
+
 ## 從 v0.2.0 升級到 v0.3.0
 
 不相容的變更：
@@ -89,7 +94,7 @@ AGENTS.md                       # 入口；標記內的區塊由 kit 管理，�
 `install.sh` 不會修改專案的 `project.yaml`。升級到 v0.1.1 後，請把 `templates/project.yaml` 最後的 `loop_guard:` 區塊
 加進 `.ai-collab/project.yaml`，再跑一次 `install.sh` 同步 `AGENTS.md`；在此之前 `verify.sh` 會回報缺少 `loop_guard`。
 
-## 限制（v0.3.0）
+## 限制（v0.3.1）
 
 - 腳本需要 Bash 3.2 以上、git 與 POSIX 工具；CI 在 Ubuntu 與 macOS（系統內建 Bash 3.2）上執行。尚未支援 Windows 原生 shell。
 - `project.yaml` 只檢查頂層 key 是否存在與占位符是否填完，不驗證值的格式。
