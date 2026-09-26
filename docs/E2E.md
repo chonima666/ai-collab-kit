@@ -29,13 +29,13 @@
 | # | 安全邊界 | 預期 | 結果 |
 | --- | --- | --- | --- |
 | B1 | Merger App 發出的 `ai-collab/gate` | ruleset 認定為正確來源，低風險 PR 自動合併 | 2026-09-26 通過，證據 E6 |
-| B2 | 建構者或 GitHub Actions 發出同名 `ai-collab/gate` success | ruleset 仍拒絕合併 | 2026-09-26 通過（owner 帳號發出的同名 success），證據 E7；GitHub Actions 發出的情況未實測，原因見 E7 |
+| B2 | 建構者或 GitHub Actions 發出同名 `ai-collab/gate` success | ruleset 仍拒絕合併 | 部分通過：建構者（owner）帳號發出的同名 success 被拒，證據 E7；GitHub Actions 發出的情況未驗證，原因見 E7 |
 | B3 | 建構者以 `chonima666` 的連結直接合併 Human Gate PR | GitHub 拒絕 | 2026-09-26 通過，證據 E8 |
 | B4 | 建構者直接 push `main` | GitHub 拒絕 | 2026-09-26 通過，證據 E9 |
-| B5 | 建構者的憑證能否修改 ruleset（唯讀檢查，不實際嘗試修改） | owner 在 GitHub → Settings → Applications → Installed GitHub Apps 查看 claude.ai 連結所用 App 的權限：Administration 不是 Read and write。若是，記錄為已知限制：ruleset 只能靠 owner 親自決定，不是技術邊界 | 2026-09-26 通過：Claude App 沒有 Administration 權限，證據 E10 |
+| B5 | 建構者的憑證能否修改 ruleset（唯讀檢查，不實際嘗試修改） | owner 在 GitHub → Settings → Applications → Installed GitHub Apps 查看 claude.ai 連結所用 App 的權限：Administration 不是 Read and write。若是，記錄為已知限制：ruleset 只能靠 owner 親自決定，不是技術邊界 | 2026-09-26 owner 核對通過：Claude App 沒有 Administration 權限，證據 E10（owner 截圖，未附於 repo） |
 | B5a | ruleset 的 bypass 名單 | 空白；Human Gate 例外處理後已移除 | 2026-09-26 通過，證據 E8 |
 | B6 | Merger App 合併 | 只在 gate 允許且 head SHA 未改變時成功 | 部分通過：gate 未允許時不合併（證據 E6）；head SHA 改變的情況未驗證 |
-| B7 | Reviewer App 寫入程式碼或合併 | 做不到 | 2026-09-26 通過（權限設定），證據 E11 |
+| B7 | Reviewer App 寫入程式碼或合併 | 做不到 | 2026-09-26 owner 核對通過（權限設定），證據 E11（owner 截圖，未附於 repo） |
 | B8 | 建構者的 workflow 從非 `main` 分支取用 `ai-review` environment | 被 environment 的分支限制擋下 | 2026-09-26 通過，證據 E12 |
 
 ## 證據
@@ -170,18 +170,22 @@ remote: - 3 of 3 required status checks are expected.
 
 之後 `git ls-remote origin refs/heads/main` 仍是 `9b8de7d`。拒絕來自 GitHub ruleset（GH013），不是 session 的 proxy。
 
-**E10（B5）**：owner 截圖 GitHub → Settings → Applications → Installed GitHub Apps → Claude（anthropics）：
+**E10（B5）**：證據性質是 owner 核對：owner 在 GitHub 設定頁截圖並交給建構者判讀，截圖未附於 repo，其他人要核對需由 owner 重看同一頁。
+GitHub → Settings → Applications → Installed GitHub Apps → Claude（anthropics）：
 - Read：commit statuses、metadata。
 - Read and write：actions、checks、code、discussions、issues、pull requests、repository hooks、workflows。
 - 沒有 administration，所以建構者的連線無法修改 ruleset 或 bypass 名單。
 - Repository access 是 All repositories。
-- 其餘寫入權限由其他邊界抵銷：
-  - commit statuses 只有 read，所以發不出 `ai-collab/gate`。
-  - checks write 可以建立同名 check run，但 ruleset 把 CI 檢查綁在 integration 15368。
-  - code、workflows write 會被 B4、B8 與 Policy Gate 的受保護路徑擋住。
+- 其餘寫入權限不受 B5 限制，各自由下列控制處理；這些控制都不阻止寫入功能分支：
+  - commit statuses 只有 read：這個連線不能發布任何 commit status，包括 `ai-collab/gate`。
+  - checks write：可以建立同名的 check run；ruleset 只接受 integration 15368（GitHub Actions）發出的 CI 檢查，所以它不能滿足合併條件（與 E7 同一條規則，未另外實測）。
+  - code、workflows write：可以推送功能分支，也可以在分支上新增或修改 workflow。
+    - 直接寫入 `main` 被 ruleset 拒絕（B4）。
+    - 分支上的 workflow 不能使用 `ai-review` environment 及其 secrets（B8）。
+    - 修改 `.github/` 等受保護路徑的 PR 不會自動合併，只能由 owner 在 Human Gate 決定（Policy Gate）。
 
 **E11（B7）**：
-- owner 截圖 Reviewer App（owner 確認是 `chonima666-ai-reviewer`，App ID 5065244；截圖未拍到頁首的名稱）：
+- 證據性質是 owner 核對，截圖未附於 repo（同 E10）。owner 截圖 Reviewer App（owner 確認是 `chonima666-ai-reviewer`，App ID 5065244；截圖未拍到頁首的名稱）：
   - Repository permissions 標示「2 selected、1 mandatory」：Contents Read-only、Pull requests Read and write、Metadata Read-only。
   - 其餘全部 No access，包括 Administration、Commit statuses、Workflows、Secrets、Variables、Environments、Actions、Checks、Deployments、Webhooks、Merge queues。
   - Organization、Account permissions 全部 No access。
