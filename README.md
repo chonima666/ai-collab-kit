@@ -22,6 +22,7 @@
 | `.github/workflows/ai-review.yml`、`docs/AUTOMATION.md` | 自動審查與自動交付的 workflow 與設定步驟 |
 | `docs/E2E.md` | 在真實 GitHub、GitHub App 與 OpenAI 上的端對端驗收紀錄與證據 |
 | `tests/run.sh` | 端對端測試 |
+| `VERSION` | kit 的版本號（語意化版本） |
 
 ## 安裝到專案
 
