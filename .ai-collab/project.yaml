@@ -10,7 +10,7 @@ loop_guard:
 # the Reviewer is the Reviewer GitHub App. While either is unset, automation refuses to run.
 identities:
   builder: "chonima666"
-  reviewer: ""    # the Reviewer App's bot login, e.g. my-reviewer[bot]
+  reviewer: "chonima666-ai-reviewer[bot]"    # Reviewer GitHub App, App ID 5065244
 
 # Changes to these paths always need the owner (REVIEW_PROTOCOL §10.1), on top of the built-in
 # .github/, .ai-collab/, CLAUDE.md and AGENTS.md. `*` also matches "/".
