@@ -93,10 +93,12 @@ HUMAN_GATE_REQUIRED: no model call
   以及當時 `main` 的 tip `9b6439f`，依序執行 `pr-state.sh`（檔案模式）與 `policy-gate.sh`，輸出 `decision=AUTO_MERGE_ALLOWED`、`reason=all_conditions_met`。
   當時 `AICK_AUTO_MERGE` 未開啟，`deliver` job 是 skipped，PR #8 由 owner 手動合併。
 
-重現 A9 的指令（公開 repo 的唯讀 API，不需要 token；在本 repo 的 checkout 中執行；`$main_wt` 是 repo 外的暫存目錄，放 `base_tip` 的 worktree，
-所以 `scripts/` 與 `.ai-collab/project.yaml` 都取自當時的 `main`）：
+重現 A9 的指令（公開 repo 的唯讀 API，不需要 token）。在本 repo 的 checkout 根目錄執行；指令會建立暫存目錄，
+在裡面放 `base_tip` 的 worktree，所以 `scripts/` 與 `.ai-collab/project.yaml` 都取自當時的 `main`：
 
 ```bash
+repo="$PWD" work="$(mktemp -d)" && cd "$work"
+main_wt="$work/wt"
 A=https://api.github.com/repos/chonima666/ai-collab-kit
 head=a3ff704aba25dd94d3f5e98fa3d51e5853933606 base_tip=9b6439fe647f2bab58fea3fbe3eaa1abab7fa02d
 # PR #8 之後已合併；還原成 A9 當下的狀態（open、未合併），其餘欄位照 API 原樣
@@ -104,9 +106,9 @@ curl -sS "$A/pulls/8" | jq '.state = "open" | .merged = false | .merged_at = nul
 curl -sS "$A/issues/8/comments?per_page=100" > comments.json
 curl -sS "$A/pulls/8/reviews?per_page=100" > reviews.json
 curl -sS "$A/commits/$head/check-runs?per_page=100" > checks.json
-git fetch origin "$head" && git worktree add --detach "$main_wt" "$base_tip"
+git -C "$repo" fetch origin "$head" "$base_tip" && git -C "$repo" worktree add --detach "$main_wt" "$base_tip"
 "$main_wt"/scripts/pr-state.sh --pr-file pr.json --comments-file comments.json --reviews-file reviews.json --root "$main_wt" > state
-git diff --no-renames --name-only -z "$base_tip...$head" > paths
+git -C "$repo" diff --no-renames --name-only -z "$base_tip...$head" > paths
 "$main_wt"/scripts/policy-gate.sh --state state --paths paths --checks checks.json --base-tip "$base_tip" --root "$main_wt"
 ```
 
