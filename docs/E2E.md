@@ -34,7 +34,7 @@
 | B4 | 建構者直接 push `main` | GitHub 拒絕 | 2026-09-26 通過，證據 E9 |
 | B5 | 建構者的憑證能否修改 ruleset（唯讀檢查，不實際嘗試修改） | owner 在 GitHub → Settings → Applications → Installed GitHub Apps 查看 claude.ai 連結所用 App 的權限：Administration 不是 Read and write。若是，記錄為已知限制：ruleset 只能靠 owner 親自決定，不是技術邊界 | 2026-09-28 repository evidence，待人工開檔核對：截圖存於 repo（`docs/evidence/B5-claude-permissions.png`），依截圖判讀 Claude App 沒有 Administration 權限；自動審查者看不到影像，這個判讀未經它核對，見 E10 |
 | B5a | ruleset 的 bypass 名單 | 空白；Human Gate 例外處理後已移除 | 2026-09-26 通過，證據 E8 |
-| B6 | Merger App 合併 | 只在 gate 允許且 head SHA 未改變時成功 | 2026-09-28 通過：gate 未允許時不合併（證據 E6）；`VERIFIED` 之後 head 改變，CI 完成後的判定是 `NOT_READY: not_reviewed`，未合併（證據 E14） |
+| B6 | Merger App 合併 | 只在 gate 允許且 head SHA 未改變時成功 | 部分通過：gate 允許且 head 未變時合併（PR #11，證據 E6）；gate 未允許時不合併（證據 E6）；`VERIFIED` 之後 head 改變，判定 `NOT_READY: not_reviewed`、未合併（2026-09-28，證據 E14）。gate 判定允許之後、合併 API 呼叫之前 head 改變（`deliver.sh` 以 `sha` 固定 head）的情況未驗證 |
 | B7 | Reviewer App 寫入程式碼或合併 | 做不到 | 2026-09-28 repository evidence，待人工開檔核對：截圖存於 repo（`docs/evidence/B7-*.png`），依截圖判讀 Reviewer App 的 repository 權限只有 Contents read、Pull requests read and write、Metadata read；Organization、Account、Enterprise permissions 不在截圖內。「做不到」是依權限與 ruleset 推論，沒有以 Reviewer 金鑰實測；自動審查者看不到影像，未經它核對，見 E11 |
 | B8 | 建構者的 workflow 從非 `main` 分支取用 `ai-review` environment | 被 environment 的分支限制擋下 | 2026-09-26 通過，證據 E12 |
 
@@ -245,5 +245,6 @@ Y 是 `6bf1e2f5ef717bc69d85409d814f317bb8b9ec5d`（X 之後只再改 `README.md`
   它的 `deliver` job 重建狀態得到 `pr_head=6bf1e2f…`、`head_review=none`，判定 `decision=NOT_READY`、`reason=not_reviewed`，
   印出 `NOT_READY: not_reviewed; no merge`，並在 Y 上發出 `ai-collab/gate` = pending（`NOT_READY: not_reviewed`，07:30:55Z）。
 - 之後 `GET /repos/chonima666/ai-collab-kit/pulls/15` 是 `merged: false`、`mergeable_state: blocked`，head 仍是 Y。
-- 結論：X 上的 `VERIFIED` 沒有被沿用到 Y。判定只看目前 head 上的 Reviewer 紀錄；`deliver.sh` 合併時另外以 `sha` 固定判定當下的 head，
-  這一層沒有被這次實測觸發（沒有進入合併步驟）。
+- 結論：X 上的 `VERIFIED` 沒有被沿用到 Y。判定只看目前 head 上的 Reviewer 紀錄。
+- 未涵蓋：`deliver.sh` 合併時另外以 `sha` 固定判定當下的 head，這一層只在 gate 判定 `AUTO_MERGE_ALLOWED` 之後、合併 API 呼叫之前
+  head 改變時才會作用；這次沒有進入合併步驟，所以沒有觸發，B6 仍是部分通過（PR #15 審查 R2-01）。
