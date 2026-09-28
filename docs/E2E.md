@@ -29,10 +29,10 @@
 | # | 安全邊界 | 預期 | 結果 |
 | --- | --- | --- | --- |
 | B1 | Merger App 發出的 `ai-collab/gate` | ruleset 認定為正確來源，低風險 PR 自動合併 | 2026-09-26 通過，證據 E6 |
-| B2 | 建構者或 GitHub Actions 發出同名 `ai-collab/gate` success | ruleset 仍拒絕合併 | 部分通過：建構者（owner）帳號發出的同名 success 被拒，證據 E7；GitHub Actions 發出的情況未驗證，原因見 E7 |
+| B2 | 建構者或 GitHub Actions 發出同名 `ai-collab/gate` success | ruleset 仍拒絕合併 | 部分通過：建構者（owner）帳號發出的同名 success 被拒，證據 E7；GitHub Actions 發出的情況未驗證，2026-09-28 owner 決定維持部分通過，原因見 E7 |
 | B3 | 建構者以 `chonima666` 的連結直接合併 Human Gate PR | GitHub 拒絕 | 2026-09-26 通過，證據 E8 |
 | B4 | 建構者直接 push `main` | GitHub 拒絕 | 2026-09-26 通過，證據 E9 |
-| B5 | 建構者的憑證能否修改 ruleset（唯讀檢查，不實際嘗試修改） | owner 在 GitHub → Settings → Applications → Installed GitHub Apps 查看 claude.ai 連結所用 App 的權限：Administration 不是 Read and write。若是，記錄為已知限制：ruleset 只能靠 owner 親自決定，不是技術邊界 | 2026-09-26 owner-verified，not independently verified by Reviewer：owner 已核對 Claude App 沒有 Administration 權限，但未提供可供 Reviewer 獨立驗證的證據，見 E10 |
+| B5 | 建構者的憑證能否修改 ruleset（唯讀檢查，不實際嘗試修改） | owner 在 GitHub → Settings → Applications → Installed GitHub Apps 查看 claude.ai 連結所用 App 的權限：Administration 不是 Read and write。若是，記錄為已知限制：ruleset 只能靠 owner 親自決定，不是技術邊界 | 2026-09-28 通過：截圖存於 repo（`docs/evidence/B5-claude-permissions.png`），Claude App 沒有 Administration 權限，證據 E10 |
 | B5a | ruleset 的 bypass 名單 | 空白；Human Gate 例外處理後已移除 | 2026-09-26 通過，證據 E8 |
 | B6 | Merger App 合併 | 只在 gate 允許且 head SHA 未改變時成功 | 部分通過：gate 未允許時不合併（證據 E6）；head SHA 改變的情況未驗證 |
 | B7 | Reviewer App 寫入程式碼或合併 | 做不到 | 2026-09-26 owner-verified，not independently verified by Reviewer：owner 已核對 Reviewer App 的權限設定，但未提供可供 Reviewer 獨立驗證的證據，見 E11 |
@@ -149,6 +149,9 @@ base 是當時的 `main` `9b8de7d`，`behind_by=0`）。沒有貼 READY，測完
   `mergeable_state: blocked`。CI 通過、分支最新、同名狀態 success，唯一未滿足的是 ruleset 只接受 integration 5085385（Merger App）的 `ai-collab/gate`。
 - 由 GitHub Actions 發出同名狀態需要在 PR 中新增 workflow，這次為了不動 workflow 沒有實測。它與上面的情況由同一條規則擋下：
   GitHub Actions 是 integration 15368，不是 5085385。
+- 2026-09-28 建構者嘗試新增在 PR 上以 GitHub Actions 發出同名 success 的探測 workflow，被建構者工具（Claude Code）的安全機制拒絕，
+  檔案未 commit、未 push。owner 決定不另外放行，B2 維持部分通過：上面兩種情況由 ruleset 的同一條來源限制處理，
+  已實測的是 owner 帳號這一種。
 
 **E8（B3、B5a）**：
 - B3：PR #10 的 head `6e62927` 上，`ai-collab/gate` 是 Merger App 發出的 pending（`NOT_READY: not_reviewed`），`mergeable_state: blocked`。
@@ -170,9 +173,10 @@ remote: - 3 of 3 required status checks are expected.
 
 之後 `git ls-remote origin refs/heads/main` 仍是 `9b8de7d`。拒絕來自 GitHub ruleset（GH013），不是 session 的 proxy。
 
-**E10（B5）**：證據強度是 owner-verified，not independently verified by Reviewer。owner 在 GitHub 設定頁截圖並交給建構者判讀；截圖未附於 repo，
-Reviewer 與其他人無法獨立驗證，要核對需由 owner 重看同一頁。
-GitHub → Settings → Applications → Installed GitHub Apps → Claude（anthropics）：
+**E10（B5）**：owner 於 2026-09-28 截圖，存於 [`docs/evidence/B5-claude-permissions.png`](evidence/B5-claude-permissions.png)
+（2026-09-26 的判讀當時只有 owner 看過截圖，未附於 repo）。截圖由 owner 提供，Reviewer 與其他人可以直接核對下列內容；
+要確認截圖之後設定沒有變更，仍需由 owner 重看同一頁。
+GitHub → Settings → Applications → Installed GitHub Apps → Claude（anthropics，頁首可見名稱與 Developed by anthropics）：
 - Read：commit statuses、metadata。
 - Read and write：actions、checks、code、discussions、issues、pull requests、repository hooks、workflows。
 - 沒有 administration，所以建構者的連線無法修改 ruleset 或 bypass 名單。
