@@ -21,6 +21,7 @@
 | `scripts/policy-gate.sh`、`scripts/deliver.sh` | 自動交付：以固定規則判定能否自動合併，由 Merger App 發布 `ai-collab/gate` 並合併 |
 | `.github/workflows/ai-review.yml`、`docs/AUTOMATION.md` | 自動審查與自動交付的 workflow 與設定步驟 |
 | `docs/E2E.md` | 在真實 GitHub、GitHub App 與 OpenAI 上的端對端驗收紀錄與證據 |
+| `docs/evidence/` | `docs/E2E.md` 引用的截圖證據（B5、B7 的 GitHub App 權限設定） |
 | `tests/run.sh` | 端對端測試 |
 | `VERSION` | kit 的版本號（語意化版本） |
 
