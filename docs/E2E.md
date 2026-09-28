@@ -16,7 +16,7 @@
 | --- | --- | --- | --- |
 | A1 | 建構者貼 `AI-Review: READY` 觸發 workflow | `state` job 判定 `REVIEW` | 2026-09-26 通過，證據 E1 |
 | A2 | Reviewer App 貼出審查 | review 作者是 `chonima666-ai-reviewer[bot]`，帶 `Review-Status`、`Reviewed-SHA`、`Open-Findings`、`Risk-Flags` | 2026-09-26 通過：PR #6 review 5325622377 與 5325626897，作者都是 `chonima666-ai-reviewer[bot]`，四個欄位齊全 |
-| A3 | 同一個 SHA 再貼一次 READY | `NO_ACTION`，不呼叫模型 | 未驗證 |
+| A3 | 同一個 SHA 再貼一次 READY | `NO_ACTION`，不呼叫模型 | 2026-09-28 通過，證據 E13 |
 | A4 | `AICK_AUTO_MERGE` 未開啟 | `deliver` job 不執行，沒有 `ai-collab/gate` 狀態 | 2026-09-26 通過，證據 E2 |
 | A5 | Reviewer App 的金鑰無效 | 不呼叫模型、不貼文，`REVIEW_FAILED` | 2026-09-26 通過，證據 E3 |
 | A6 | 同一個發現在 2 個不同 SHA 上都未結案（LG-05） | 下一個 READY 判定 `HUMAN_GATE_REQUIRED`（`repeated_unresolved_finding`），不呼叫模型、不建立 App token，由 owner 決定 | 2026-09-26 通過，證據 E4 |
@@ -29,13 +29,13 @@
 | # | 安全邊界 | 預期 | 結果 |
 | --- | --- | --- | --- |
 | B1 | Merger App 發出的 `ai-collab/gate` | ruleset 認定為正確來源，低風險 PR 自動合併 | 2026-09-26 通過，證據 E6 |
-| B2 | 建構者或 GitHub Actions 發出同名 `ai-collab/gate` success | ruleset 仍拒絕合併 | 部分通過：建構者（owner）帳號發出的同名 success 被拒，證據 E7；GitHub Actions 發出的情況未驗證，原因見 E7 |
+| B2 | 建構者或 GitHub Actions 發出同名 `ai-collab/gate` success | ruleset 仍拒絕合併 | 部分通過：建構者（owner）帳號發出的同名 success 被拒，證據 E7；GitHub Actions 發出的情況未驗證，維持部分通過，見 E7 |
 | B3 | 建構者以 `chonima666` 的連結直接合併 Human Gate PR | GitHub 拒絕 | 2026-09-26 通過，證據 E8 |
 | B4 | 建構者直接 push `main` | GitHub 拒絕 | 2026-09-26 通過，證據 E9 |
-| B5 | 建構者的憑證能否修改 ruleset（唯讀檢查，不實際嘗試修改） | owner 在 GitHub → Settings → Applications → Installed GitHub Apps 查看 claude.ai 連結所用 App 的權限：Administration 不是 Read and write。若是，記錄為已知限制：ruleset 只能靠 owner 親自決定，不是技術邊界 | 2026-09-26 owner-verified，not independently verified by Reviewer：owner 已核對 Claude App 沒有 Administration 權限，但未提供可供 Reviewer 獨立驗證的證據，見 E10 |
+| B5 | 建構者的憑證能否修改 ruleset（唯讀檢查，不實際嘗試修改） | owner 在 GitHub → Settings → Applications → Installed GitHub Apps 查看 claude.ai 連結所用 App 的權限：Administration 不是 Read and write。若是，記錄為已知限制：ruleset 只能靠 owner 親自決定，不是技術邊界 | 2026-09-28 repository evidence，待人工開檔核對：截圖存於 repo（`docs/evidence/B5-claude-permissions.png`），依截圖判讀 Claude App 沒有 Administration 權限；自動審查者看不到影像，這個判讀未經它核對，見 E10 |
 | B5a | ruleset 的 bypass 名單 | 空白；Human Gate 例外處理後已移除 | 2026-09-26 通過，證據 E8 |
 | B6 | Merger App 合併 | 只在 gate 允許且 head SHA 未改變時成功 | 部分通過：gate 未允許時不合併（證據 E6）；head SHA 改變的情況未驗證 |
-| B7 | Reviewer App 寫入程式碼或合併 | 做不到 | 2026-09-26 owner-verified，not independently verified by Reviewer：owner 已核對 Reviewer App 的權限設定，但未提供可供 Reviewer 獨立驗證的證據，見 E11 |
+| B7 | Reviewer App 寫入程式碼或合併 | 做不到 | 2026-09-28 repository evidence，待人工開檔核對：截圖存於 repo（`docs/evidence/B7-*.png`），依截圖判讀 Reviewer App 的 repository 權限只有 Contents read、Pull requests read and write、Metadata read；Organization、Account、Enterprise permissions 不在截圖內。「做不到」是依權限與 ruleset 推論，沒有以 Reviewer 金鑰實測；自動審查者看不到影像，未經它核對，見 E11 |
 | B8 | 建構者的 workflow 從非 `main` 分支取用 `ai-review` environment | 被 environment 的分支限制擋下 | 2026-09-26 通過，證據 E12 |
 
 ## 證據
@@ -149,6 +149,9 @@ base 是當時的 `main` `9b8de7d`，`behind_by=0`）。沒有貼 READY，測完
   `mergeable_state: blocked`。CI 通過、分支最新、同名狀態 success，唯一未滿足的是 ruleset 只接受 integration 5085385（Merger App）的 `ai-collab/gate`。
 - 由 GitHub Actions 發出同名狀態需要在 PR 中新增 workflow，這次為了不動 workflow 沒有實測。它與上面的情況由同一條規則擋下：
   GitHub Actions 是 integration 15368，不是 5085385。
+- 2026-09-28 建構者（PR #14 的 session）嘗試新增在 PR 上以 GitHub Actions 發出同名 success 的探測 workflow，被建構者工具（Claude Code）的安全機制拒絕，
+  檔案未 commit、未 push，也沒有另外放行這個操作。B2 維持部分通過：上面兩種情況由 ruleset 的同一條來源限制處理，
+  已實測的是 owner 帳號這一種。
 
 **E8（B3、B5a）**：
 - B3：PR #10 的 head `6e62927` 上，`ai-collab/gate` 是 Merger App 發出的 pending（`NOT_READY: not_reviewed`），`mergeable_state: blocked`。
@@ -170,9 +173,11 @@ remote: - 3 of 3 required status checks are expected.
 
 之後 `git ls-remote origin refs/heads/main` 仍是 `9b8de7d`。拒絕來自 GitHub ruleset（GH013），不是 session 的 proxy。
 
-**E10（B5）**：證據強度是 owner-verified，not independently verified by Reviewer。owner 在 GitHub 設定頁截圖並交給建構者判讀；截圖未附於 repo，
-Reviewer 與其他人無法獨立驗證，要核對需由 owner 重看同一頁。
-GitHub → Settings → Applications → Installed GitHub Apps → Claude（anthropics）：
+**E10（B5）**：owner 於 2026-09-28 截圖，存於 [`docs/evidence/B5-claude-permissions.png`](evidence/B5-claude-permissions.png)
+（2026-09-26 的判讀當時只有 owner 看過截圖，未附於 repo）。截圖由 owner 提供，任何人可以開檔核對下列內容；
+要確認截圖之後設定沒有變更，仍需由 owner 重看同一頁。自動審查者（模型）只收到文字 diff，看不到 PNG 的內容，
+所以截圖的核對要由人開檔進行（PR #14 審查 R1-01）。
+GitHub → Settings → Applications → Installed GitHub Apps → Claude（anthropics，頁首可見名稱與 Developed by anthropics）：
 - Read：commit statuses、metadata。
 - Read and write：actions、checks、code、discussions、issues、pull requests、repository hooks、workflows。
 - 沒有 administration，所以建構者的連線無法修改 ruleset 或 bypass 名單。
@@ -186,13 +191,29 @@ GitHub → Settings → Applications → Installed GitHub Apps → Claude（anth
     - 修改 `.github/` 等受保護路徑的 PR 不會自動合併，只能由 owner 在 Human Gate 決定（Policy Gate）。
 
 **E11（B7）**：
-- 證據強度是 owner-verified，not independently verified by Reviewer（同 E10）。owner 截圖 Reviewer App（owner 確認是 `chonima666-ai-reviewer`，App ID 5065244；截圖未拍到頁首的名稱）：
-  - Repository permissions 標示「2 selected、1 mandatory」：Contents Read-only、Pull requests Read and write、Metadata Read-only。
-  - 其餘全部 No access，包括 Administration、Commit statuses、Workflows、Secrets、Variables、Environments、Actions、Checks、Deployments、Webhooks、Merge queues。
-  - Organization、Account permissions 全部 No access。
+- owner 於 2026-09-28 截圖，存於 `docs/evidence/`（2026-09-26 的判讀當時只有 owner 看過截圖，未附於 repo，也未拍到頁首的名稱）。
+  截圖由 owner 提供，任何人可以開檔核對下列內容；要確認截圖之後設定沒有變更，仍需由 owner 重看同一頁；
+  自動審查者看不到影像，核對要由人開檔進行（同 E10）。
+  - [`B7-reviewer-app-id.png`](evidence/B7-reviewer-app-id.png)：頁首路徑是 GitHub Apps / `chonima666-ai-reviewer`，Owned by `@chonima666`，App ID 5065244。
+    畫面上的 Client ID 是公開識別碼；Client secrets 與 Private keys 不在截圖內。
+  - App 的權限設定，頁首路徑同上，Repository permissions 展開後依字母順序分成四張：
+    [1](evidence/B7-reviewer-app-permissions-1.png)（Actions～Code scanning alerts）、
+    [2](evidence/B7-reviewer-app-permissions-2.png)（Code quality～Discussions）、
+    [3](evidence/B7-reviewer-app-permissions-3.png)（Environments～Single file）、
+    [4](evidence/B7-reviewer-app-permissions-4.png)（Secrets～Workflows）。
+    - 標示「2 selected、1 mandatory」：Contents Read-only、Pull requests Read and write、Metadata Read-only（mandatory）。
+    - 其餘全部 No access，包括 Administration、Commit statuses、Workflows、Secrets、Variables、Environments、Actions、Checks、Deployments、Webhooks、Merge queues。
+    - Organization、Account、Enterprise permissions 在截圖中是收合的，沒有列出內容；2026-09-26 owner 核對時全部 No access。
+  - [`B7-reviewer-installation-permissions.png`](evidence/B7-reviewer-installation-permissions.png)：安裝在 repo 上實際生效的權限只有
+    「Read access to code and metadata」與「Read and write access to pull requests」，Repository access 是 Only select repositories，只有 `chonima666/ai-collab-kit`。
 - workflow 另外把 token 限制在同樣的範圍：[run 36245271308](https://github.com/chonima666/ai-collab-kit/actions/runs/36245271308) 的 `act` job
   以 `permission-contents: read`、`permission-pull-requests: write` 建立 token。
-- 合併需要 Contents write；Reviewer App 也不在 bypass 名單（E8）。
+- 「不能合併」分成三件事記錄，都不是實測：
+  - App 權限：依截圖判讀，Contents 是 Read-only，Pull requests 是 Read and write。
+  - GitHub 的要求：[合併 PR 的 REST API](https://docs.github.com/en/rest/pulls/pulls#merge-a-pull-request) 對 GitHub App 要求
+    Contents write；Pull requests write 本身不含合併。這是依 GitHub 文件的推論，repo 內沒有對 Reviewer App 的實測。
+  - ruleset／gate：即使 App 能呼叫合併，`main` 的 ruleset 仍要求 Merger App（integration 5085385）發出的 `ai-collab/gate` success，
+    Reviewer App 不是它；Reviewer App 也不在 bypass 名單（E8）。
 - 沒有實際以 Reviewer 金鑰嘗試寫入：金鑰只在限定 `main` 的 environment 中，建構者拿不到（E12）。
 
 **E12（B8）**：owner 在 Actions → ai-review → Run workflow 選分支 `probe/b2-b8`、PR 12，得到
@@ -202,3 +223,13 @@ GitHub → Settings → Applications → Installed GitHub Apps → Claude（anth
   `Branch "probe/b2-b8" is not allowed to deploy to ai-review due to environment protection rules.`
 - `act` job skipped。
 - 之後 PR #12 沒有新的 `ai-collab/gate` 狀態。
+
+**E13（A3）**：PR #14，head `0880d94f8827c034725950d3070df9108d903e8f`。
+- 第一次 READY（Ready-SHA 同上）：[run 36384275800](https://github.com/chonima666/ai-collab-kit/actions/runs/36384275800) 判定 `REVIEW`，
+  Reviewer App 在這個 SHA 貼出 review 5334548789（`CHANGES_REQUESTED`，Review-Round 1）。
+- 同一個 SHA 再貼一次 READY（留言 5864420416）：[run 36384873620](https://github.com/chonima666/ai-collab-kit/actions/runs/36384873620)
+  的 `state` job 印出 `decision=NO_ACTION`、`reason=already_reviewed`、`rounds=1`、`last_reviewed=0880d94…`；`act` 與 `deliver` job 都是 skipped，
+  沒有呼叫模型，PR 上沒有新的 review。
+- 另外觀察到：READY 指向的 SHA 在判定時已不是 head（Ready-SHA `e57599c`，head 已是 `0880d94`）時，
+  [run 36384169383](https://github.com/chonima666/ai-collab-kit/actions/runs/36384169383) 判定 `NO_ACTION`、`reason=ready_not_head`，同樣不呼叫模型。
+  這不是 B6：當時沒有 `VERIFIED`，B6 的「head 改變」情況仍未驗證。
