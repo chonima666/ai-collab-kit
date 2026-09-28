@@ -34,7 +34,7 @@
 | B4 | 建構者直接 push `main` | GitHub 拒絕 | 2026-09-26 通過，證據 E9 |
 | B5 | 建構者的憑證能否修改 ruleset（唯讀檢查，不實際嘗試修改） | owner 在 GitHub → Settings → Applications → Installed GitHub Apps 查看 claude.ai 連結所用 App 的權限：Administration 不是 Read and write。若是，記錄為已知限制：ruleset 只能靠 owner 親自決定，不是技術邊界 | 2026-09-28 repository evidence，待人工開檔核對：截圖存於 repo（`docs/evidence/B5-claude-permissions.png`），依截圖判讀 Claude App 沒有 Administration 權限；自動審查者看不到影像，這個判讀未經它核對，見 E10 |
 | B5a | ruleset 的 bypass 名單 | 空白；Human Gate 例外處理後已移除 | 2026-09-26 通過，證據 E8 |
-| B6 | Merger App 合併 | 只在 gate 允許且 head SHA 未改變時成功 | 部分通過：gate 未允許時不合併（證據 E6）；head SHA 改變的情況未驗證 |
+| B6 | Merger App 合併 | 只在 gate 允許且 head SHA 未改變時成功 | 2026-09-28 通過：gate 未允許時不合併（證據 E6）；`VERIFIED` 之後 head 改變，CI 完成後的判定是 `NOT_READY: not_reviewed`，未合併（證據 E14） |
 | B7 | Reviewer App 寫入程式碼或合併 | 做不到 | 2026-09-28 repository evidence，待人工開檔核對：截圖存於 repo（`docs/evidence/B7-*.png`），依截圖判讀 Reviewer App 的 repository 權限只有 Contents read、Pull requests read and write、Metadata read；Organization、Account、Enterprise permissions 不在截圖內。「做不到」是依權限與 ruleset 推論，沒有以 Reviewer 金鑰實測；自動審查者看不到影像，未經它核對，見 E11 |
 | B8 | 建構者的 workflow 從非 `main` 分支取用 `ai-review` environment | 被 environment 的分支限制擋下 | 2026-09-26 通過，證據 E12 |
 
@@ -232,4 +232,18 @@ GitHub → Settings → Applications → Installed GitHub Apps → Claude（anth
   沒有呼叫模型，PR 上沒有新的 review。
 - 另外觀察到：READY 指向的 SHA 在判定時已不是 head（Ready-SHA `e57599c`，head 已是 `0880d94`）時，
   [run 36384169383](https://github.com/chonima666/ai-collab-kit/actions/runs/36384169383) 判定 `NO_ACTION`、`reason=ready_not_head`，同樣不呼叫模型。
-  這不是 B6：當時沒有 `VERIFIED`，B6 的「head 改變」情況仍未驗證。
+  這不是 B6：當時沒有 `VERIFIED`；B6 的「head 改變」情況見 E14。
+
+**E14（B6）**：PR #15（只改 `README.md`）。X 是 `6d0f6eb64552714412e0f9b2cb4b3bd41e9793c8`（以 GitHub 的 update branch 把 `main` `5206f11` 合併進分支），
+Y 是 `6bf1e2f5ef717bc69d85409d814f317bb8b9ec5d`（X 之後只再改 `README.md` 一行）。時間都是 2026-09-28 UTC。
+- 07:28:58 對 X 貼 READY，[run 36391874593](https://github.com/chonima666/ai-collab-kit/actions/runs/36391874593) 判定 `REVIEW`；
+  07:29:33 Reviewer App 在 X 貼出 review 5335235943：`Review-Status: VERIFIED`、`Open-Findings: none`、`Risk-Flags: none`。
+- 同一個 run 的 `deliver` job 在 X 上判定 `head_review=VERIFIED`、`decision=NOT_READY`、`reason=ci_pending`（`pending_checks=test (macos-latest)`），
+  印出 `NOT_READY: ci_pending pending_checks=test (macos-latest); no merge`。X 的 CI（[run 36391864588](https://github.com/chonima666/ai-collab-kit/actions/runs/36391864588)）當時還在執行。
+- 07:30:10 建構者推 Y，PR 的 head 變成 Y。Y 沒有貼 READY，也沒有任何 review。
+- 07:30:43 X 的 CI 完成（success），07:30:45 觸發 [run 36392040346](https://github.com/chonima666/ai-collab-kit/actions/runs/36392040346)（`workflow_run`）。
+  它的 `deliver` job 重建狀態得到 `pr_head=6bf1e2f…`、`head_review=none`，判定 `decision=NOT_READY`、`reason=not_reviewed`，
+  印出 `NOT_READY: not_reviewed; no merge`，並在 Y 上發出 `ai-collab/gate` = pending（`NOT_READY: not_reviewed`，07:30:55Z）。
+- 之後 `GET /repos/chonima666/ai-collab-kit/pulls/15` 是 `merged: false`、`mergeable_state: blocked`，head 仍是 Y。
+- 結論：X 上的 `VERIFIED` 沒有被沿用到 Y。判定只看目前 head 上的 Reviewer 紀錄；`deliver.sh` 合併時另外以 `sha` 固定判定當下的 head，
+  這一層沒有被這次實測觸發（沒有進入合併步驟）。
