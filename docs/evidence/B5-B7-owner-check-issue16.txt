@@ -1,0 +1,25 @@
+Issue #16 as returned by GET https://api.github.com/repos/chonima666/ai-collab-kit/issues/16 on 2026-09-28T10:12:25Z (read-only; anyone can repeat it).
+The author login is shared by the owner and the Builder (REVIEW_PROTOCOL.md §8.1), so this is the owner's statement, not a signature.
+
+number: 16
+title: B5/B7 human verification
+author: chonima666 (OWNER)
+created_at: 2026-09-28T10:04:21Z
+updated_at: 2026-09-28T10:04:21Z
+state: open
+--- body ---
+Human verification
+Date: 2026-09-28
+
+B5:
+Opened docs/evidence/B5-claude-permissions.png.
+Claude GitHub App does not have Administration read/write. Matches E10.
+
+B7:
+Opened B7-reviewer-app-id.png, B7-reviewer-app-permissions-1..4.png
+and B7-reviewer-installation-permissions.png.
+App ID 5065244. Repository permissions (Contents read-only,
+Pull requests read and write, Metadata read-only, all others no access)
+and repository scope (only chonima666/ai-collab-kit) match E11.
+
+Verified by: repository owner, in the GitHub web UI
