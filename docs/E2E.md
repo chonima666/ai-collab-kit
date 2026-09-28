@@ -32,10 +32,10 @@
 | B2 | 建構者或 GitHub Actions 發出同名 `ai-collab/gate` success | ruleset 仍拒絕合併 | 部分通過：建構者（owner）帳號發出的同名 success 被拒，證據 E7；GitHub Actions 發出的情況未驗證，維持部分通過，見 E7 |
 | B3 | 建構者以 `chonima666` 的連結直接合併 Human Gate PR | GitHub 拒絕 | 2026-09-26 通過，證據 E8 |
 | B4 | 建構者直接 push `main` | GitHub 拒絕 | 2026-09-26 通過，證據 E9 |
-| B5 | 建構者的憑證能否修改 ruleset（唯讀檢查，不實際嘗試修改） | owner 在 GitHub → Settings → Applications → Installed GitHub Apps 查看 claude.ai 連結所用 App 的權限：Administration 不是 Read and write。若是，記錄為已知限制：ruleset 只能靠 owner 親自決定，不是技術邊界 | 2026-09-28 repository evidence，human-verified：截圖存於 repo（`docs/evidence/B5-claude-permissions.png`），Claude App 沒有 Administration 權限；owner 開檔核對的紀錄是 issue #16，見 E10 |
+| B5 | 建構者的憑證能否修改 ruleset（唯讀檢查，不實際嘗試修改） | owner 在 GitHub → Settings → Applications → Installed GitHub Apps 查看 claude.ai 連結所用 App 的權限：Administration 不是 Read and write。若是，記錄為已知限制：ruleset 只能靠 owner 親自決定，不是技術邊界 | 2026-09-28 repository evidence，另有 owner 核對聲明：截圖存於 repo（`docs/evidence/B5-claude-permissions.png`），依截圖 Claude App 沒有 Administration 權限；owner 在共用帳號下以 issue #16 聲明已開檔核對（全文見 `docs/evidence/B5-B7-owner-check-issue16.txt`），不是可獨立驗證身分的人工核對，見 E10 |
 | B5a | ruleset 的 bypass 名單 | 空白；Human Gate 例外處理後已移除 | 2026-09-26 通過，證據 E8 |
-| B6 | Merger App 合併 | 只在 gate 允許且 head SHA 未改變時成功 | 2026-09-28 通過（分層驗證）：gate 允許且 head 未變時合併（PR #11，證據 E6）；gate 未允許時不合併（證據 E6）；`VERIFIED` 之後 head 改變，判定 `NOT_READY: not_reviewed`、未合併（證據 E14）；gate 判定允許之後、合併之前 head 改變：`deliver.sh` 以判定當下的 `sha` 呼叫合併、被拒時停止（`tests/run.sh`），GitHub 對過期 `sha` 回應 409 且不合併（真實 GitHub 實測，證據 E15）。Merger App 本身遇到這個時序的情況沒有重現，見 E15 |
-| B7 | Reviewer App 寫入程式碼或合併 | 做不到 | 2026-09-28 repository evidence，human-verified：截圖存於 repo（`docs/evidence/B7-*.png`），Reviewer App 的 repository 權限只有 Contents read、Pull requests read and write、Metadata read，只安裝在本 repo；owner 開檔核對的紀錄是 issue #16。Organization、Account、Enterprise permissions 不在截圖內。「做不到」是依權限與 ruleset 推論，沒有以 Reviewer 金鑰實測，見 E11 |
+| B6 | Merger App 合併 | 只在 gate 允許且 head SHA 未改變時成功 | 2026-09-28 通過（分層驗證）：gate 允許且 head 未變時合併（PR #11，證據 E6）；gate 未允許時不合併（證據 E6）；`VERIFIED` 之後 head 改變，判定 `NOT_READY: not_reviewed`、未合併（證據 E14）；gate 判定允許之後、合併之前 head 改變：`deliver.sh` 以判定當下的 `sha` 呼叫合併、被拒時停止（`tests/run.sh`），GitHub 對過期 `sha` 回應 409 且不合併（真實 GitHub 實測，證據 E15，原始紀錄 `docs/evidence/B6-stale-sha-merge.txt`）。Merger App 本身遇到這個時序的情況沒有重現，見 E15 |
+| B7 | Reviewer App 寫入程式碼或合併 | 做不到 | 2026-09-28 repository evidence，另有 owner 核對聲明：截圖存於 repo（`docs/evidence/B7-*.png`），依截圖 Reviewer App 的 repository 權限只有 Contents read、Pull requests read and write、Metadata read，只安裝在本 repo；owner 在共用帳號下以 issue #16 聲明已開檔核對（同 B5）。Organization、Account、Enterprise permissions 不在截圖內。「做不到」是依權限與 ruleset 推論，沒有以 Reviewer 金鑰實測，見 E11 |
 | B8 | 建構者的 workflow 從非 `main` 分支取用 `ai-review` environment | 被 environment 的分支限制擋下 | 2026-09-26 通過，證據 E12 |
 
 ## 證據
@@ -177,7 +177,8 @@ remote: - 3 of 3 required status checks are expected.
 （2026-09-26 的判讀當時只有 owner 看過截圖，未附於 repo）。截圖由 owner 提供，任何人可以開檔核對下列內容；
 要確認截圖之後設定沒有變更，仍需由 owner 重看同一頁。自動審查者（模型）只收到文字 diff，看不到 PNG 的內容，
 所以截圖的核對要由人開檔進行（PR #14 審查 R1-01）。
-- 人工核對：owner 於 2026-09-28 10:04:21Z 在 GitHub 網頁開 [issue #16](https://github.com/chonima666/ai-collab-kit/issues/16)，
+- owner 核對聲明：owner 於 2026-09-28 10:04:21Z 在 GitHub 網頁開 [issue #16](https://github.com/chonima666/ai-collab-kit/issues/16)
+  （API 回傳的全文存於 [`docs/evidence/B5-B7-owner-check-issue16.txt`](evidence/B5-B7-owner-check-issue16.txt)），
   記錄已開啟 `B5-claude-permissions.png`，Claude GitHub App 沒有 Administration read/write，與本段一致。
   owner 與建構者共用 `chonima666` 帳號（`REVIEW_PROTOCOL.md` §8.1），紀錄本身無法區分由誰寫入；這裡照實記為 owner 在網頁留下的聲明，
   不是可以獨立驗證身分的簽章。
@@ -198,7 +199,7 @@ GitHub → Settings → Applications → Installed GitHub Apps → Claude（anth
 - owner 於 2026-09-28 截圖，存於 `docs/evidence/`（2026-09-26 的判讀當時只有 owner 看過截圖，未附於 repo，也未拍到頁首的名稱）。
   截圖由 owner 提供，任何人可以開檔核對下列內容；要確認截圖之後設定沒有變更，仍需由 owner 重看同一頁；
   自動審查者看不到影像，核對要由人開檔進行（同 E10）。
-  人工核對紀錄是 [issue #16](https://github.com/chonima666/ai-collab-kit/issues/16)（2026-09-28 10:04:21Z）：owner 記錄已開啟下列五個檔案，
+  owner 核對聲明是 [issue #16](https://github.com/chonima666/ai-collab-kit/issues/16)（2026-09-28 10:04:21Z，全文見 `docs/evidence/B5-B7-owner-check-issue16.txt`）：owner 記錄已開啟下列五個檔案，
   App ID 5065244、repository 權限與安裝範圍都與本段一致。帳號共用的限制同 E10。
   - [`B7-reviewer-app-id.png`](evidence/B7-reviewer-app-id.png)：頁首路徑是 GitHub Apps / `chonima666-ai-reviewer`，Owned by `@chonima666`，App ID 5065244。
     畫面上的 Client ID 是公開識別碼；Client secrets 與 Private keys 不在截圖內。
@@ -255,7 +256,8 @@ Y 是 `6bf1e2f5ef717bc69d85409d814f317bb8b9ec5d`（X 之後只再改 `README.md`
 - 未涵蓋：`deliver.sh` 合併時另外以 `sha` 固定判定當下的 head，這一層只在 gate 判定 `AUTO_MERGE_ALLOWED` 之後、合併 API 呼叫之前
   head 改變時才會作用；這次沒有進入合併步驟，所以沒有觸發，B6 仍是部分通過（PR #15 審查 R2-01）。
 
-**E15（B6：合併當下 head 已改變）**：TOCTOU 的防線分成三層，各有直接證據。
+**E15（B6：合併當下 head 已改變）**：TOCTOU 的防線分成三層，各有直接證據。三層的原始請求／回應、`GET /pulls/17` 的唯讀結果、
+對應的 `tests/run.sh` 行與輸出、`deliver.sh` 第 116～121 行都存於 [`docs/evidence/B6-stale-sha-merge.txt`](evidence/B6-stale-sha-merge.txt)。
 
 1. `deliver.sh` 以判定當下的 head 呼叫合併：第 116～117 行把 `{sha: <判定的 head>, merge_method: "merge"}` 送到
    `PUT /repos/{repo}/pulls/{n}/merge`。`tests/run.sh` 的「the merge is pinned to the judged head」檢查送出的 `sha` 就是判定的 head。

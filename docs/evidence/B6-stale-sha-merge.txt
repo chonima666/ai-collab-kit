@@ -1,0 +1,76 @@
+E2E B6 layer 3 raw records (docs/E2E.md E15). Captured 2026-09-28 by the Builder session; times UTC.
+All requests below went to the same endpoint and body shape as scripts/deliver.sh lines 116-117.
+
+== 1. PUT https://api.github.com/repos/chonima666/ai-collab-kit/pulls/17/merge at 10:07:34, head was already Y (feb3e4d...)
+-- request body
+{
+  "sha": "2ce77498c06d3706081f1cb2c063200f70acc3c7",
+  "merge_method": "merge"
+}
+-- response (HTTP 409)
+{
+  "message": "Head branch was modified. Review and try the merge again.",
+  "documentation_url": "https://docs.github.com/rest/pulls/pulls#merge-a-pull-request",
+  "status": "409"
+}
+
+== 2. PUT https://api.github.com/repos/chonima666/ai-collab-kit/pulls/17/merge at 10:07:47 (control)
+-- request body
+{
+  "sha": "feb3e4d3411da8cb26cc038ce1435d3af52ae291",
+  "merge_method": "merge"
+}
+-- response (HTTP 200)
+{
+  "sha": "86da1b9bf76ebe37d29d2dc7c0da2fc71aaaeded",
+  "merged": true,
+  "message": "Pull Request successfully merged"
+}
+
+== 3. GET https://api.github.com/repos/chonima666/ai-collab-kit/pulls/17 re-read on 2026-09-28T10:11:28Z (read-only; anyone can repeat it)
+{
+  "number": 17,
+  "state": "closed",
+  "merged": true,
+  "merged_at": "2026-09-28T10:07:46Z",
+  "merged_by": "chonima666",
+  "merge_commit_sha": "86da1b9bf76ebe37d29d2dc7c0da2fc71aaaeded",
+  "head": {
+    "ref": "e2e/b6-head",
+    "sha": "feb3e4d3411da8cb26cc038ce1435d3af52ae291"
+  },
+  "base": {
+    "ref": "e2e/b6-base"
+  },
+  "created_at": "2026-09-28T10:07:13Z"
+}
+
+== 4. GET https://api.github.com/repos/chonima666/ai-collab-kit/pulls/17/commits (X then Y)
+[
+  {
+    "sha": "2ce77498c06d3706081f1cb2c063200f70acc3c7",
+    "message": "E2E B6 probe: version X"
+  },
+  {
+    "sha": "feb3e4d3411da8cb26cc038ce1435d3af52ae291",
+    "message": "E2E B6 probe: version Y"
+  }
+]
+
+== 5. tests/run.sh lines for layers 1 and 2, and their result at commit 38be54406428cea4f4e2957fad35619de68afacb
+reset_fake; verified_at "$ready_sha"; deliv --trigger review
+expect_deliv "low risk + CI green + Reviewer VERIFIED: merged automatically" 0 AUTO_MERGE_ALLOWED success 1 "AUTO_MERGED"
+[ "$(jq -r '.sha + " " + .merge_method' "$F/merge.json")" = "$ready_sha merge" ] && ok "the merge is pinned to the judged head" || bad "the merge is pinned to the judged head"
+reset_fake; verified_at "$ready_sha"; echo 409 > "$F/merge_status"; echo '{"message":"Head branch was modified"}' > "$F/merge_response"; deliv
+expect_deliv "GitHub refusing the merge is an explicit failure" 6 AUTO_MERGE_ALLOWED success 1 "AUTO_MERGE_FAILED"
+ok   - the merge is pinned to the judged head
+ok   - GitHub refusing the merge is an explicit failure
+passed=200 failed=0
+
+== 6. scripts/deliver.sh lines 116-121
+jq -n --arg sha "$head" '{sha: $sha, merge_method: "merge"}' > "$work/merge.json"
+http="$(merger -X PUT --data-binary @"$work/merge.json" "$api/pulls/$pr/merge")" || http=000
+rm -f "$work/auth"
+[ "$http" = 200 ] && [ "$(jq -r '.merged // false' "$work/response.json")" = true ] \
+  || fail "GitHub refused the merge of $head (HTTP $http): $(jq -r '.message // empty' "$work/response.json" 2>/dev/null | head -c 200)" 6
+echo "merged: $repo#$pr at $head"
