@@ -149,7 +149,7 @@ base 是當時的 `main` `9b8de7d`，`behind_by=0`）。沒有貼 READY，測完
   `mergeable_state: blocked`。CI 通過、分支最新、同名狀態 success，唯一未滿足的是 ruleset 只接受 integration 5085385（Merger App）的 `ai-collab/gate`。
 - 由 GitHub Actions 發出同名狀態需要在 PR 中新增 workflow，這次為了不動 workflow 沒有實測。它與上面的情況由同一條規則擋下：
   GitHub Actions 是 integration 15368，不是 5085385。
-- 2026-09-28 建構者嘗試新增在 PR 上以 GitHub Actions 發出同名 success 的探測 workflow，被建構者工具（Claude Code）的安全機制拒絕，
+- 2026-09-28 建構者（PR #14 的 session）嘗試新增在 PR 上以 GitHub Actions 發出同名 success 的探測 workflow，被建構者工具（Claude Code）的安全機制拒絕，
   檔案未 commit、未 push。owner 決定不另外放行，B2 維持部分通過：上面兩種情況由 ruleset 的同一條來源限制處理，
   已實測的是 owner 帳號這一種。
 
