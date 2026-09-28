@@ -34,7 +34,7 @@
 | B4 | 建構者直接 push `main` | GitHub 拒絕 | 2026-09-26 通過，證據 E9 |
 | B5 | 建構者的憑證能否修改 ruleset（唯讀檢查，不實際嘗試修改） | owner 在 GitHub → Settings → Applications → Installed GitHub Apps 查看 claude.ai 連結所用 App 的權限：Administration 不是 Read and write。若是，記錄為已知限制：ruleset 只能靠 owner 親自決定，不是技術邊界 | 2026-09-28 repository evidence，human-verified：截圖存於 repo（`docs/evidence/B5-claude-permissions.png`），Claude App 沒有 Administration 權限；owner 開檔核對的紀錄是 issue #16，見 E10 |
 | B5a | ruleset 的 bypass 名單 | 空白；Human Gate 例外處理後已移除 | 2026-09-26 通過，證據 E8 |
-| B6 | Merger App 合併 | 只在 gate 允許且 head SHA 未改變時成功 | 部分通過：gate 允許且 head 未變時合併（PR #11，證據 E6）；gate 未允許時不合併（證據 E6）；`VERIFIED` 之後 head 改變，判定 `NOT_READY: not_reviewed`、未合併（2026-09-28，證據 E14）。gate 判定允許之後、合併 API 呼叫之前 head 改變（`deliver.sh` 以 `sha` 固定 head）的情況未驗證 |
+| B6 | Merger App 合併 | 只在 gate 允許且 head SHA 未改變時成功 | 2026-09-28 通過（分層驗證）：gate 允許且 head 未變時合併（PR #11，證據 E6）；gate 未允許時不合併（證據 E6）；`VERIFIED` 之後 head 改變，判定 `NOT_READY: not_reviewed`、未合併（證據 E14）；gate 判定允許之後、合併之前 head 改變：`deliver.sh` 以判定當下的 `sha` 呼叫合併、被拒時停止（`tests/run.sh`），GitHub 對過期 `sha` 回應 409 且不合併（真實 GitHub 實測，證據 E15）。Merger App 本身遇到這個時序的情況沒有重現，見 E15 |
 | B7 | Reviewer App 寫入程式碼或合併 | 做不到 | 2026-09-28 repository evidence，human-verified：截圖存於 repo（`docs/evidence/B7-*.png`），Reviewer App 的 repository 權限只有 Contents read、Pull requests read and write、Metadata read，只安裝在本 repo；owner 開檔核對的紀錄是 issue #16。Organization、Account、Enterprise permissions 不在截圖內。「做不到」是依權限與 ruleset 推論，沒有以 Reviewer 金鑰實測，見 E11 |
 | B8 | 建構者的 workflow 從非 `main` 分支取用 `ai-review` environment | 被 environment 的分支限制擋下 | 2026-09-26 通過，證據 E12 |
 
@@ -254,3 +254,29 @@ Y 是 `6bf1e2f5ef717bc69d85409d814f317bb8b9ec5d`（X 之後只再改 `README.md`
 - 結論：X 上的 `VERIFIED` 沒有被沿用到 Y。判定只看目前 head 上的 Reviewer 紀錄。
 - 未涵蓋：`deliver.sh` 合併時另外以 `sha` 固定判定當下的 head，這一層只在 gate 判定 `AUTO_MERGE_ALLOWED` 之後、合併 API 呼叫之前
   head 改變時才會作用；這次沒有進入合併步驟，所以沒有觸發，B6 仍是部分通過（PR #15 審查 R2-01）。
+
+**E15（B6：合併當下 head 已改變）**：TOCTOU 的防線分成三層，各有直接證據。
+
+1. `deliver.sh` 以判定當下的 head 呼叫合併：第 116～117 行把 `{sha: <判定的 head>, merge_method: "merge"}` 送到
+   `PUT /repos/{repo}/pulls/{n}/merge`。`tests/run.sh` 的「the merge is pinned to the judged head」檢查送出的 `sha` 就是判定的 head。
+2. GitHub 拒絕時 `deliver.sh` 停止：`tests/run.sh` 的「GitHub refusing the merge is an explicit failure」以 409
+   `Head branch was modified` 模擬，`deliver.sh` 以 exit 6 結束、印出 `AUTO_MERGE_FAILED`，不重試、不改用其他方式合併。
+3. GitHub 真的拒絕過期的 `sha`（2026-09-28 在真實 GitHub 實測，時間 UTC）：
+   - owner 同意建立臨時 base 分支 `e2e/b6-base`（當時 `main` 的 `eb69bfe`），不在 `main` 的 ruleset 範圍內，所以結果只取決於 GitHub 對 `sha` 的檢查。
+   - 探測 [PR #17](https://github.com/chonima666/ai-collab-kit/pull/17)（`e2e/b6-head` → `e2e/b6-base`，只新增 `e2e-b6-probe.md`），
+     10:07:13 建立時 head 是 X `2ce77498c06d3706081f1cb2c063200f70acc3c7`。
+   - 10:07:26 推 Y `feb3e4d3411da8cb26cc038ce1435d3af52ae291`；10:07:33 `GET /pulls/17` 的 head 是 Y、`mergeable: true`。
+   - 10:07:34 以建構者的憑證呼叫與 `deliver.sh` 相同的 endpoint 與 body：`PUT /pulls/17/merge`，`{"sha": "2ce7749…", "merge_method": "merge"}`
+     （這個環境的 proxy 另外要求 `Content-Type: application/json`，不影響 GitHub 的判斷）。回應：
+
+     ```text
+     HTTP 409
+     {"message": "Head branch was modified. Review and try the merge again.", "status": "409"}
+     ```
+
+     之後 `GET /pulls/17` 是 `merged: false`、head 仍是 Y。
+   - 對照組：10:07:47 同一個呼叫改帶 Y 的 `sha`，回應 HTTP 200、`merged: true`，merge commit `86da1b9bf76ebe37d29d2dc7c0da2fc71aaaeded`，
+     只進入 `e2e/b6-base`。`main` 仍是 `eb69bfe`。
+
+未涵蓋：第 3 層用的是建構者的憑證，不是 Merger App 的 token；`sha` 檢查是 GitHub 對這個 endpoint 的行為，與呼叫者無關，這是推論，
+沒有讓 Merger App 在真實時序中遇到 head 改變。兩個臨時分支因這個 session 的網路政策無法刪除（git 與 API 都回應 403），由 owner 在網頁刪除。
