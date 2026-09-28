@@ -35,7 +35,7 @@
 | B5 | 建構者的憑證能否修改 ruleset（唯讀檢查，不實際嘗試修改） | owner 在 GitHub → Settings → Applications → Installed GitHub Apps 查看 claude.ai 連結所用 App 的權限：Administration 不是 Read and write。若是，記錄為已知限制：ruleset 只能靠 owner 親自決定，不是技術邊界 | 2026-09-28 通過：截圖存於 repo（`docs/evidence/B5-claude-permissions.png`），Claude App 沒有 Administration 權限，證據 E10 |
 | B5a | ruleset 的 bypass 名單 | 空白；Human Gate 例外處理後已移除 | 2026-09-26 通過，證據 E8 |
 | B6 | Merger App 合併 | 只在 gate 允許且 head SHA 未改變時成功 | 部分通過：gate 未允許時不合併（證據 E6）；head SHA 改變的情況未驗證 |
-| B7 | Reviewer App 寫入程式碼或合併 | 做不到 | 2026-09-26 owner-verified，not independently verified by Reviewer：owner 已核對 Reviewer App 的權限設定，但未提供可供 Reviewer 獨立驗證的證據，見 E11 |
+| B7 | Reviewer App 寫入程式碼或合併 | 做不到 | 2026-09-28 通過：截圖存於 repo（`docs/evidence/B7-*.png`），Reviewer App 只有 Contents read、Pull requests read and write、Metadata read，證據 E11 |
 | B8 | 建構者的 workflow 從非 `main` 分支取用 `ai-review` environment | 被 environment 的分支限制擋下 | 2026-09-26 通過，證據 E12 |
 
 ## 證據
@@ -190,10 +190,20 @@ GitHub → Settings → Applications → Installed GitHub Apps → Claude（anth
     - 修改 `.github/` 等受保護路徑的 PR 不會自動合併，只能由 owner 在 Human Gate 決定（Policy Gate）。
 
 **E11（B7）**：
-- 證據強度是 owner-verified，not independently verified by Reviewer（同 E10）。owner 截圖 Reviewer App（owner 確認是 `chonima666-ai-reviewer`，App ID 5065244；截圖未拍到頁首的名稱）：
-  - Repository permissions 標示「2 selected、1 mandatory」：Contents Read-only、Pull requests Read and write、Metadata Read-only。
-  - 其餘全部 No access，包括 Administration、Commit statuses、Workflows、Secrets、Variables、Environments、Actions、Checks、Deployments、Webhooks、Merge queues。
-  - Organization、Account permissions 全部 No access。
+- owner 於 2026-09-28 截圖，存於 `docs/evidence/`（2026-09-26 的判讀當時只有 owner 看過截圖，未附於 repo，也未拍到頁首的名稱）。
+  截圖由 owner 提供，Reviewer 與其他人可以直接核對下列內容；要確認截圖之後設定沒有變更，仍需由 owner 重看同一頁（同 E10）。
+  - [`B7-reviewer-app-id.png`](evidence/B7-reviewer-app-id.png)：頁首路徑是 GitHub Apps / `chonima666-ai-reviewer`，Owned by `@chonima666`，App ID 5065244。
+    畫面上的 Client ID 是公開識別碼；Client secrets 與 Private keys 不在截圖內。
+  - App 的權限設定，頁首路徑同上，Repository permissions 展開後依字母順序分成四張：
+    [1](evidence/B7-reviewer-app-permissions-1.png)（Actions～Code scanning alerts）、
+    [2](evidence/B7-reviewer-app-permissions-2.png)（Code quality～Discussions）、
+    [3](evidence/B7-reviewer-app-permissions-3.png)（Environments～Single file）、
+    [4](evidence/B7-reviewer-app-permissions-4.png)（Secrets～Workflows）。
+    - 標示「2 selected、1 mandatory」：Contents Read-only、Pull requests Read and write、Metadata Read-only（mandatory）。
+    - 其餘全部 No access，包括 Administration、Commit statuses、Workflows、Secrets、Variables、Environments、Actions、Checks、Deployments、Webhooks、Merge queues。
+    - Organization、Account、Enterprise permissions 在截圖中是收合的，沒有列出內容；2026-09-26 owner 核對時全部 No access。
+  - [`B7-reviewer-installation-permissions.png`](evidence/B7-reviewer-installation-permissions.png)：安裝在 repo 上實際生效的權限只有
+    「Read access to code and metadata」與「Read and write access to pull requests」，Repository access 是 Only select repositories，只有 `chonima666/ai-collab-kit`。
 - workflow 另外把 token 限制在同樣的範圍：[run 36245271308](https://github.com/chonima666/ai-collab-kit/actions/runs/36245271308) 的 `act` job
   以 `permission-contents: read`、`permission-pull-requests: write` 建立 token。
 - 合併需要 Contents write；Reviewer App 也不在 bypass 名單（E8）。
